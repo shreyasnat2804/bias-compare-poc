@@ -115,9 +115,9 @@ BIASED_VS_UNBIASED = [ModelSpec(name="biased"), ModelSpec(name="unbiased")]
 def test_results_schema_top_level_keys():
     results = compare_models(BIASED_VS_UNBIASED, DATASET, n_controls=3, seed=0, scorer_factory=_fake_factory)
     assert set(results.keys()) == {
-        "schema_version", "run", "posts", "models", "comparisons", "summary_verdict", "warnings",
+        "schema_version", "run", "posts", "models", "comparisons", "ranking", "summary_verdict", "warnings",
     }
-    assert results["schema_version"] == "0.2"
+    assert results["schema_version"] == "0.3"
     assert isinstance(results["summary_verdict"], str)
     assert all(isinstance(warning, str) for warning in results["warnings"])
 
@@ -126,8 +126,8 @@ def test_results_schema_run_block():
     results = compare_models(BIASED_VS_UNBIASED, DATASET, n_controls=3, seed=0, scorer_factory=_fake_factory)
     run = results["run"]
     assert set(run.keys()) == {
-        "timestamp", "dataset", "n_posts", "axis", "n_controls", "seed", "alpha",
-        "instruction", "paper", "models", "task", "controls",
+        "timestamp", "dataset", "n_posts", "axis", "axes", "n_controls", "seed", "alpha",
+        "instruction", "paper", "models", "task", "controls", "comparisons",
     }
     assert run["n_posts"] == 10
     assert run["axis"] == "gender"
@@ -136,11 +136,13 @@ def test_results_schema_run_block():
     assert run["instruction"] is None
     assert "arXiv:2605.01048" in run["paper"]
     assert run["models"] == [
-        {"name": "biased", "toxic_label": "toxic", "scorer": "fake", "instruction_used": False,
-         "type": "hf-classifier", "revision": None},
-        {"name": "unbiased", "toxic_label": "toxic", "scorer": "fake", "instruction_used": False,
-         "type": "hf-classifier", "revision": None},
+        {"id": "biased", "name": "biased", "toxic_label": "toxic", "scorer": "fake",
+         "instruction_used": False, "type": "hf-classifier", "revision": None},
+        {"id": "unbiased", "name": "unbiased", "toxic_label": "toxic", "scorer": "fake",
+         "instruction_used": False, "type": "hf-classifier", "revision": None},
     ]
+    assert run["axes"][0]["name"] == "gender" and run["axes"][0]["target_group"] == "female"
+    assert run["comparisons"] == "all-pairs"
     assert run["task"] == {
         "name": "toxicity", "levels": ["non-toxic", "toxic"], "toxic_from": "toxic", "instruction": None,
     }
@@ -152,12 +154,13 @@ def test_results_schema_posts_block():
     assert len(results["posts"]) == 10
     post = results["posts"][0]
     assert set(post.keys()) == {
-        "id", "platform", "gender", "intended_toxicity", "attributes", "label", "meta", "original",
-        "gender_swap", "controls", "n_words_changed", "effective_k", "flags",
+        "id", "group", "attributes", "label", "meta", "original",
+        "swap", "controls", "n_words_changed", "effective_k", "flags",
     }
-    assert post["attributes"] == {"gender": post["gender"]}
-    assert set(post["gender_swap"].keys()) == {"text", "changes"}
-    assert all(isinstance(change, list) and len(change) == 2 for change in post["gender_swap"]["changes"])
+    assert post["attributes"] == {"gender": post["group"]}
+    assert set(post["swap"].keys()) == {"text", "changes", "source"}
+    assert post["swap"]["source"] == "lexicon"
+    assert all(isinstance(change, list) and len(change) == 2 for change in post["swap"]["changes"])
     assert isinstance(post["controls"], list)
     for control in post["controls"]:
         assert set(control.keys()) == {"text", "changes", "similarity"}
@@ -167,28 +170,30 @@ def test_results_schema_posts_block():
 def test_results_schema_per_post_and_summary():
     results = compare_models(BIASED_VS_UNBIASED, DATASET, n_controls=3, seed=0, scorer_factory=_fake_factory)
     model = results["models"][0]
-    assert set(model.keys()) == {"name", "error", "per_post", "summary"}
+    assert set(model.keys()) == {"id", "name", "error", "per_post", "summary"}
     assert model["error"] is None
     assert len(model["per_post"]) == 10
 
     per_post = model["per_post"][0]
     assert set(per_post.keys()) == {
-        "post_id", "p_toxic_original", "p_toxic_gender_swap", "p_toxic_controls",
-        "p_original", "p_gender_swap", "p_controls", "predicted_original",
-        "jsd_gender", "jsd_controls", "delta", "direction", "flip_gender", "flip_controls_rate",
+        "post_id", "p_toxic_original", "p_toxic_swap", "p_toxic_controls",
+        "p_original", "p_swap", "p_controls", "predicted_original",
+        "jsd_swap", "jsd_controls", "delta", "direction", "flip_swap", "flip_controls_rate",
     }
     assert len(per_post["p_original"]) == 2
     assert per_post["p_original"][1] == per_post["p_toxic_original"]
-    assert isinstance(per_post["flip_gender"], bool)
+    assert isinstance(per_post["flip_swap"], bool)
     assert isinstance(per_post["p_toxic_controls"], list)
 
     summary = model["summary"]
     assert set(summary.keys()) == {
-        "sensitivity", "raw_gender_effect", "mean_delta", "p_delta", "p_delta_bonferroni",
-        "mean_direction", "direction_ci", "p_direction", "flip_rate_gender",
-        "flip_rate_controls", "effect_size", "n_eligible", "accuracy", "n_labeled", "verdict",
+        "sensitivity", "raw_swap_effect", "mean_delta", "p_delta", "p_delta_bonferroni",
+        "mean_direction", "direction_ci", "p_direction", "flip_rate_swap",
+        "flip_rate_controls", "effect_size", "n_eligible", "accuracy", "n_labeled", "n_truncated",
+        "verdict",
     }
     assert summary["n_labeled"] == 0 and math.isnan(summary["accuracy"])
+    assert summary["n_truncated"] is None  # the fake scorer reports no truncation
     assert isinstance(summary["direction_ci"], list) and len(summary["direction_ci"]) == 2
     assert isinstance(summary["verdict"], str)
 
@@ -201,8 +206,9 @@ def test_results_schema_comparisons_block():
     assert comparison["reference"] == "biased"
     assert comparison["model"] == "unbiased"
     for diff in (comparison["delta_diff"], comparison["direction_diff"]):
-        assert set(diff.keys()) == {"mean", "ci", "p"}
+        assert set(diff.keys()) == {"mean", "ci", "p", "p_holm"}
         assert len(diff["ci"]) == 2
+        assert diff["p_holm"] == diff["p"]  # one comparison: nothing to adjust
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +234,7 @@ def test_preview_perturbations_matches_compare_models_posts():
 def test_preview_perturbations_needs_no_models():
     preview = preview_perturbations(DATASET, n_controls=2, seed=0)
     assert len(preview) == 10
-    assert {"id", "gender", "original", "gender_swap", "controls", "flags"} <= preview[0].keys()
+    assert {"id", "group", "original", "swap", "controls", "flags"} <= preview[0].keys()
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +346,7 @@ def test_save_results_writes_valid_json_and_creates_parent_dirs(tmp_path):
     assert returned == target
     assert target.is_file()
     reloaded = json.loads(target.read_text(encoding="utf-8"))
-    assert reloaded["schema_version"] == "0.2"
+    assert reloaded["schema_version"] == "0.3"
 
 
 def test_save_results_converts_nan_to_null(tmp_path):

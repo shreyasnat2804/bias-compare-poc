@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
-from biascompare.compare import preview_perturbations
+from biascompare.compare import axis_results, preview_perturbations
 from biascompare.config import load_config, run
 from biascompare.results import save_results
 
@@ -40,29 +40,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "preview":
         return _preview(config)
 
-    results = run(config)
+    report = run(config)
     output = config.output or Path(args.config).parent / "results" / f"{Path(args.config).stem}.json"
-    save_results(results, output)
-    print(results["summary_verdict"])
-    for warning in results["warnings"]:
-        print(f"warning: {warning}")
+    save_results(report, output)
+    for axis in config.axes:
+        results = axis_results(report, axis.name)
+        print(f"[{axis.name}] {results['summary_verdict']}")
+        for row in results["ranking"]:
+            marker = " (significant)" if row["significant"] else ""
+            print(f"  {row['rank']}. {row['model']}: mean delta {row['mean_delta']:.5f}{marker}")
+        for warning in results["warnings"]:
+            print(f"  warning: {warning}")
     print(f"results written to {output}")
     return 0
 
 
 def _preview(config) -> int:
-    rows = preview_perturbations(
-        config.dataset, n_controls=config.n_controls, seed=config.seed, axis=config.axis,
-        controls=config.controls,
-    )
-    flags = Counter(flag for row in rows for flag in row["flags"])
-    print(f"{len(rows)} rows, controls: {config.controls.method}")
-    for flag, count in sorted(flags.items()):
-        print(f"  {flag}: {count}")
-    for row in rows[:3]:
-        print(f"\n[{row['id']}] {row['original']}\n  swap: {row['gender_swap']['text']}")
-        for control in row["controls"][:2]:
-            print(f"  control: {control['text']}")
+    for axis in config.axes:
+        try:
+            rows = preview_perturbations(
+                config.dataset, n_controls=config.n_controls, seed=config.seed, axis=axis,
+                controls=config.controls,
+            )
+        except ValueError as exc:
+            print(f"[{axis.name}] {exc}")
+            continue
+        flags = Counter(flag for row in rows for flag in row["flags"])
+        print(f"[{axis.name}] {len(rows)} rows, controls: {config.controls.method}")
+        for flag, count in sorted(flags.items()):
+            print(f"  {flag}: {count}")
+        for row in rows[:3]:
+            print(f"\n  [{row['id']}] {row['original']}\n    swap: {row['swap']['text']}")
+            for control in row["controls"][:2]:
+                print(f"    control: {control['text']}")
+        print()
     return 0
 
 

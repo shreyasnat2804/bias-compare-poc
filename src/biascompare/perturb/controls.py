@@ -60,20 +60,31 @@ class SynonymControls:
         self._protected = frozenset(word.lower() for word in protected)
 
     @classmethod
-    def from_resources(cls, extra_protected: Iterable[str] = ()) -> "SynonymControls":
-        synonyms = _load_resource_json("synonyms.json")
+    def from_resources(
+        cls, extra_protected: Iterable[str] = (), use_synonym_list: bool = True
+    ) -> "SynonymControls":
+        """Controls from the shipped synonym list, or (`use_synonym_list=False`,
+        the `tagged` method) from each row's tagged synonyms only."""
+        synonyms = _load_resource_json("synonyms.json") if use_synonym_list else {}
         protected_data = _load_resource_json("protected_words.json")
         protected = set(protected_data["words"]) | set(extra_protected)
         return cls(synonyms=synonyms, protected=protected)
 
-    def candidates(self, text: str) -> list[re.Match]:
+    def candidates(
+        self,
+        text: str,
+        synonyms: Mapping[str, Sequence[str]] | None = None,
+        protected: frozenset[str] | None = None,
+    ) -> list[re.Match]:
         """Word matches in `text` that are in the synonym list and not
         protected (case-insensitive)."""
+        synonyms = self._synonyms if synonyms is None else synonyms
+        protected = self._protected if protected is None else protected
         return [
             match
             for match in WORD_RE.finditer(text)
-            if match.group(0).lower() in self._synonyms
-            and match.group(0).lower() not in self._protected
+            if match.group(0).lower() in synonyms
+            and match.group(0).lower() not in protected
         ]
 
     def generate(
@@ -83,11 +94,18 @@ class SynonymControls:
         k: int,
         rng: np.random.Generator,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        row_synonyms: Mapping[str, Sequence[str]] | None = None,
+        row_protected: Iterable[str] = (),
     ) -> ControlSet:
         """Generate up to `k` distinct control perturbations, each replacing
         exactly `min(n_words, #candidates)` distinct candidate positions with
-        a random synonym. Deterministic given `rng`'s seed."""
-        candidate_matches = self.candidates(text)
+        a random synonym. Deterministic given `rng`'s seed.
+
+        `row_synonyms` (a row's tagged synonyms) extend and override the
+        list for this text; `row_protected` (the row's swap words) are never
+        changed."""
+        synonyms, protected = merge_row_resources(self._synonyms, self._protected, row_synonyms, row_protected)
+        candidate_matches = self.candidates(text, synonyms, protected)
         n_matched = min(n_words, len(candidate_matches))
         seen_texts = {text}
         perturbations: list[Perturbation] = []
@@ -97,7 +115,7 @@ class SynonymControls:
             chosen = sorted(
                 rng.choice(len(candidate_matches), size=n_matched, replace=False).tolist()
             )
-            new_text, changes = self._apply(text, candidate_matches, chosen, rng)
+            new_text, changes = self._apply(text, candidate_matches, chosen, rng, synonyms)
             if new_text == text or new_text in seen_texts:
                 continue
             seen_texts.add(new_text)
@@ -117,6 +135,7 @@ class SynonymControls:
         candidate_matches: Sequence[re.Match],
         chosen_indices: Sequence[int],
         rng: np.random.Generator,
+        synonyms: Mapping[str, Sequence[str]],
     ) -> tuple[str, list[Change]]:
         pieces: list[str] = []
         changes: list[Change] = []
@@ -124,7 +143,7 @@ class SynonymControls:
         for idx in chosen_indices:
             match = candidate_matches[idx]
             word = match.group(0)
-            options = self._synonyms[word.lower()]
+            options = synonyms[word.lower()]
             synonym = options[int(rng.integers(0, len(options)))]
             replacement = match_case(word, synonym)
             pieces.append(text[last_end : match.start()])
@@ -133,3 +152,24 @@ class SynonymControls:
             last_end = match.end()
         pieces.append(text[last_end:])
         return "".join(pieces), changes
+
+
+def merge_row_resources(
+    synonyms: Mapping[str, Sequence[str]],
+    protected: frozenset[str],
+    row_synonyms: Mapping[str, Sequence[str]] | None,
+    row_protected: Iterable[str],
+) -> tuple[Mapping[str, Sequence[str]], frozenset[str]]:
+    """The synonym list and protected words for one row: the row's tagged
+    synonyms override the shared list (options that are protected words are
+    dropped), and the row's swap words join the protected set."""
+    row_protected = frozenset(word.lower() for word in row_protected)
+    if not row_synonyms and not row_protected:
+        return synonyms, protected
+    protected = protected | row_protected
+    merged = dict(synonyms)
+    for word, options in (row_synonyms or {}).items():
+        kept = tuple(option for option in options if option.lower() not in protected)
+        if kept:
+            merged[word.lower()] = kept
+    return merged, protected

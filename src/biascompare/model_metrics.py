@@ -14,6 +14,7 @@ import math
 import statistics
 from collections.abc import Sequence
 
+from biascompare.axes import AxisSpec
 from biascompare.metrics import Distribution, js_divergence
 from biascompare.perturbation_plan import PostPlan, TextLayout
 from biascompare.rng import DIRECTION_CI, derive_rng
@@ -30,57 +31,52 @@ def compute_per_post_metrics(
     post_index: int,
     scores: Sequence[Distribution],
     task: TaskSpec = DEFAULT_TASK,
-    groups: tuple[str, str] = ("male", "female"),
-    axis: str = "gender",
 ) -> dict:
-    """Build one `per_post[]` entry (DESIGN §7) for `plan` from `scores`,
-    the full flattened score list for this model (see `TextLayout`).
+    """Build one `per_post[]` entry (docs/DATA.md §5) for `plan` from
+    `scores`, the full flattened score list for this model (see `TextLayout`).
 
     JSD uses the full distribution over the task's levels; flips compare
     the most probable level; `direction` is measured on severity (equal to
-    P(toxic) for a 2-level task, see `biascompare.tasks`).
+    P(toxic) for a 2-level task, see `biascompare.tasks`), as the target
+    group's version minus the other group's.
     """
     p_original = scores[layout.original_index[post_index]]
-    p_gender = scores[layout.gender_index[post_index]]
+    p_swap = scores[layout.swap_index[post_index]]
     p_controls = [scores[i] for i in layout.control_indices[post_index]]
 
-    jsd_gender = js_divergence(p_original, p_gender)
+    jsd_swap = js_divergence(p_original, p_swap)
     jsd_controls = [js_divergence(p_original, p_control) for p_control in p_controls]
     mean_jsd_controls = mean_or_nan(jsd_controls)
-    delta = jsd_gender - mean_jsd_controls if jsd_controls else _NAN
+    delta = jsd_swap - mean_jsd_controls if jsd_controls else _NAN
 
     level_original = task.predicted_level(p_original)
-    flip_gender = task.predicted_level(p_gender) != level_original
+    flip_swap = task.predicted_level(p_swap) != level_original
     control_flips = [task.predicted_level(p_control) != level_original for p_control in p_controls]
     flip_controls_rate = mean_or_nan([float(f) for f in control_flips])
 
-    direction = _direction(
-        plan.post.group(axis), groups, task.severity(p_original), task.severity(p_gender)
-    )
+    direction = _direction(plan.group, plan.axis.target_group, task.severity(p_original), task.severity(p_swap))
     return {
         "post_id": plan.post.id,
         "p_toxic_original": task.p_toxic(p_original),
-        "p_toxic_gender_swap": task.p_toxic(p_gender),
+        "p_toxic_swap": task.p_toxic(p_swap),
         "p_toxic_controls": [task.p_toxic(p) for p in p_controls],
         "p_original": list(p_original),
-        "p_gender_swap": list(p_gender),
+        "p_swap": list(p_swap),
         "p_controls": [list(p) for p in p_controls],
         "predicted_original": task.levels[level_original],
-        "jsd_gender": jsd_gender,
+        "jsd_swap": jsd_swap,
         "jsd_controls": jsd_controls,
         "delta": delta,
         "direction": direction,
-        "flip_gender": bool(flip_gender),
+        "flip_swap": bool(flip_swap),
         "flip_controls_rate": flip_controls_rate,
     }
 
 
-def _direction(
-    group: str, groups: tuple[str, str], severity_original: float, severity_swap: float
-) -> float:
-    """Severity of the second group's version minus the first group's
+def _direction(group: str, target_group: str, severity_original: float, severity_swap: float) -> float:
+    """Severity of the target group's version minus the other group's
     (for gender: female-referencing minus male-referencing, DESIGN §6)."""
-    if group == groups[1]:
+    if group == target_group:
         return severity_original - severity_swap
     return severity_swap - severity_original
 
@@ -92,6 +88,7 @@ def compute_model_summary(
     seed: int,
     model_index: int,
     alpha: float,
+    axis: AxisSpec | None = None,
 ) -> tuple[dict, list[float], list[float]]:
     """Aggregate `per_post` (restricted to eligible posts) into the
     `summary` object from DESIGN §7. Returns `(summary, deltas, directions)`
@@ -113,7 +110,7 @@ def compute_model_summary(
 
     all_control_jsds = [jsd for m in eligible for jsd in m["jsd_controls"]]
     sensitivity = mean_or_nan(all_control_jsds)
-    raw_gender_effect = mean_or_nan([m["jsd_gender"] for m in eligible])
+    raw_swap_effect = mean_or_nan([m["jsd_swap"] for m in eligible])
 
     deltas = [m["delta"] for m in eligible]
     directions = [m["direction"] for m in eligible]
@@ -129,24 +126,24 @@ def compute_model_summary(
     direction_ci = bootstrap_ci(finite_directions, derive_rng(seed, DIRECTION_CI, model_index))
     p_direction = ttest_two_sided(finite_directions)
 
-    flip_rate_gender = mean_or_nan([float(m["flip_gender"]) for m in eligible])
+    flip_rate_swap = mean_or_nan([float(m["flip_swap"]) for m in eligible])
     flip_rate_controls = mean_or_nan([m["flip_controls_rate"] for m in eligible])
     effect_size = _effect_size(finite_deltas)
 
     summary = {
         "sensitivity": sensitivity,
-        "raw_gender_effect": raw_gender_effect,
+        "raw_swap_effect": raw_swap_effect,
         "mean_delta": mean_delta,
         "p_delta": p_delta,
         "p_delta_bonferroni": p_delta_bonferroni,
         "mean_direction": mean_direction,
         "direction_ci": list(direction_ci),
         "p_direction": p_direction,
-        "flip_rate_gender": flip_rate_gender,
+        "flip_rate_swap": flip_rate_swap,
         "flip_rate_controls": flip_rate_controls,
         "effect_size": effect_size,
         "n_eligible": n,
-        "verdict": model_verdict(p_delta_bonferroni, mean_direction, p_direction, n, alpha),
+        "verdict": model_verdict(p_delta_bonferroni, mean_direction, p_direction, n, alpha, axis),
     }
     return summary, deltas, directions
 

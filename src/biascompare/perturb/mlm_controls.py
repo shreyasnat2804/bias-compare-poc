@@ -23,7 +23,7 @@ from typing import Protocol
 import numpy as np
 
 from ._text import WORD_RE, match_case
-from .controls import ControlSet, _load_resource_json
+from .controls import ControlSet, _load_resource_json, merge_row_resources
 from .types import Change, Perturbation
 
 _ASCII_WORD = re.compile(r"^[A-Za-z]+$")
@@ -104,14 +104,21 @@ class MaskedLMControls:
         synonyms = _load_resource_json("synonyms.json") if use_synonym_list else None
         return cls(substituter, similarity, protected, stopwords, synonyms, **kwargs)
 
-    def candidates(self, text: str) -> list[re.Match]:
+    def candidates(
+        self,
+        text: str,
+        synonyms: Mapping[str, Sequence[str]] | None = None,
+        protected: frozenset[str] | None = None,
+    ) -> list[re.Match]:
         """Word matches in `text` that a control may change."""
+        synonyms = self._synonyms if synonyms is None else synonyms
+        protected = self._protected if protected is None else protected
         found = []
         for match in WORD_RE.finditer(text):
             lower = match.group(0).lower()
-            if lower in self._protected:
+            if lower in protected:
                 continue
-            if lower in self._synonyms or (
+            if lower in synonyms or (
                 lower not in self._stopwords and len(lower) >= self._min_word_length
             ):
                 found.append(match)
@@ -124,12 +131,18 @@ class MaskedLMControls:
         k: int,
         rng: np.random.Generator,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        row_synonyms: Mapping[str, Sequence[str]] | None = None,
+        row_protected: Iterable[str] = (),
     ) -> ControlSet:
         """Generate up to `k` distinct controls, each replacing exactly
         `min(n_words, #usable positions)` words, keeping only variants with
-        similarity >= `min_similarity`. Deterministic given `rng`'s seed."""
-        matches = self.candidates(text)
-        options = self._options(text, matches) if matches and n_words > 0 else []
+        similarity >= `min_similarity`. Deterministic given `rng`'s seed.
+
+        A row's tagged synonyms act like listed synonyms for that text; its
+        swap words are never changed or introduced."""
+        synonyms, protected = merge_row_resources(self._synonyms, self._protected, row_synonyms, row_protected)
+        matches = self.candidates(text, synonyms, protected)
+        options = self._options(text, matches, synonyms, protected) if matches and n_words > 0 else []
         usable = [(match, opts) for match, opts in zip(matches, options) if opts]
         n_matched = min(n_words, len(usable))
 
@@ -165,14 +178,22 @@ class MaskedLMControls:
         self._substituter.close()
         self._similarity.close()
 
-    def _options(self, text: str, matches: Sequence[re.Match]) -> list[tuple[str, ...]]:
+    def _options(
+        self,
+        text: str,
+        matches: Sequence[re.Match],
+        synonyms: Mapping[str, Sequence[str]] | None = None,
+        protected: frozenset[str] | None = None,
+    ) -> list[tuple[str, ...]]:
         """Allowed replacement words (lowercase) for every candidate match."""
+        synonyms = self._synonyms if synonyms is None else synonyms
+        protected = self._protected if protected is None else protected
         options: list[tuple[str, ...] | None] = [None] * len(matches)
         to_ask: list[int] = []
         for index, match in enumerate(matches):
-            listed = self._synonyms.get(match.group(0).lower())
+            listed = synonyms.get(match.group(0).lower())
             if listed is not None:
-                options[index] = self._filter(match.group(0), listed)
+                options[index] = self._filter(match.group(0), listed, protected)
             else:
                 to_ask.append(index)
 
@@ -180,10 +201,10 @@ class MaskedLMControls:
             spans = [(matches[i].start(), matches[i].end()) for i in to_ask]
             suggestions = self._substituter.substitutes(text, spans, self._top_k)
             for index, words in zip(to_ask, suggestions):
-                options[index] = self._filter(matches[index].group(0), [word for word, _ in words])
+                options[index] = self._filter(matches[index].group(0), [word for word, _ in words], protected)
         return [opts or () for opts in options]
 
-    def _filter(self, original: str, words: Iterable[str]) -> tuple[str, ...]:
+    def _filter(self, original: str, words: Iterable[str], protected: frozenset[str]) -> tuple[str, ...]:
         kept: list[str] = []
         original_lower = original.lower()
         for word in words:
@@ -192,7 +213,7 @@ class MaskedLMControls:
                 len(lower) < 2
                 or not _ASCII_WORD.match(lower)
                 or lower == original_lower
-                or lower in self._protected
+                or lower in protected
                 or lower in self._stopwords
                 or lower in kept
             ):

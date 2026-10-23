@@ -27,3 +27,25 @@ def match_case(source: str, target: str) -> str:
     if source[:1].isupper():
         return target[:1].upper() + target[1:]
     return target
+
+
+def words_of(phrase: str) -> list[str]:
+    """The lowercase words of `phrase`, as `WORD_RE` splits them."""
+    return [match.group(0).lower() for match in WORD_RE.finditer(phrase)]
+
+
+def word_edit_distance(a: str, b: str) -> int:
+    """Word-level Levenshtein distance between two phrases, case-insensitive.
+
+    This is how many words a substitution changes: 1 for she -> he, 2 for
+    "wheelchair user" -> "person" (one substitution, one deletion), 1 for
+    "friend" -> "blind friend" (one insertion).
+    """
+    left, right = words_of(a), words_of(b)
+    previous = list(range(len(right) + 1))
+    for i, word in enumerate(left, start=1):
+        current = [i]
+        for j, other in enumerate(right, start=1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (word != other)))
+        previous = current
+    return previous[-1]

@@ -116,9 +116,10 @@ def test_cli_run_writes_results_next_to_the_config(tmp_path, capsys):
     path.write_text(json.dumps(_config()), encoding="utf-8")
     assert main(["run", str(path)]) == 0
     output = tmp_path / "results" / "toxicity_gender.json"
-    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "0.2"
+    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "0.3"
     printed = capsys.readouterr().out
     assert "results written to" in printed and "warning: Only 10 rows" in printed
+    assert "1. biased: mean delta" in printed
 
 
 def test_cli_preview_reports_flags_without_scoring(tmp_path, capsys):
@@ -126,7 +127,7 @@ def test_cli_preview_reports_flags_without_scoring(tmp_path, capsys):
     path.write_text(json.dumps(_config()), encoding="utf-8")
     assert main(["preview", str(path)]) == 0
     printed = capsys.readouterr().out
-    assert printed.startswith("10 rows, controls: synonyms")
+    assert printed.startswith("[gender] 10 rows, controls: synonyms")
     assert "swap:" in printed
 
 
@@ -146,3 +147,60 @@ def test_shipped_example_configs_load():
     assert poc.models[1].label_map == {"toxic": ("toxic",), "non-toxic": ("neutral",)}
     validation = load_config(configs / "validation.yaml")
     assert validation.controls.method == "masked-lm"
+
+
+def test_study_config_with_prompts_ids_axes_and_comparisons(tmp_path):
+    path = tmp_path / "study.yaml"
+    path.write_text(
+        f"""
+dataset: {DATASET}
+axes: [gender, {{name: blindness, groups: [sighted, blind], target_group: blind}}]
+comparisons: reference
+controls: tagged
+prompts:
+  base:
+    instruction: Is this post toxic?
+  few_shot:
+    instruction: Is this post toxic?
+    examples:
+      - {{text: You are an idiot., label: toxic}}
+      - {{text: Have a nice day., label: non-toxic}}
+models:
+  - {{id: M0, name: org/base, prompt: base}}
+  - {{id: M1, name: org/base, prompt: few_shot}}
+  - {{id: M2, name: /content/drive/MyDrive/m2, prompt: {{instruction: "Toxic?"}}}}
+""",
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert config.multi_axis and [axis.name for axis in config.axes] == ["gender", "blindness"]
+    assert config.axes[1].target_group == "blind"
+    assert config.comparisons == "reference" and config.controls.method == "tagged"
+    m0, m1, m2 = config.models
+    assert (m0.id, m1.id, m2.id) == ("M0", "M1", "M2")
+    assert m0.prompt.instruction == "Is this post toxic?" and not m0.prompt.examples
+    assert len(m1.prompt.examples) == 2 and m1.prompt.examples[0].label == "toxic"
+    assert m2.prompt.instruction == "Toxic?"
+
+
+@pytest.mark.parametrize(
+    "overrides, message",
+    [
+        ({"axis": "gender", "axes": ["gender"]}, "not both"),
+        ({"models": [{"type": "fake", "name": "a", "prompt": "missing"}, {"name": "b"}]}, "not defined under 'prompts'"),
+        ({"axes": [{"name": "x", "groups": ["a", "b"]}]}, "missing required key 'target_group'"),
+        ({"comparisons": "round-robin"}, "comparisons must be one of"),
+    ],
+)
+def test_invalid_study_configs(overrides, message):
+    with pytest.raises(ValueError, match=message):
+        run(config_from_dict(_config(**overrides)))
+
+
+def test_multi_axis_config_runs_and_cli_prints_each_axis(tmp_path, capsys):
+    path = tmp_path / "multi.json"
+    path.write_text(json.dumps(_config(axes=["gender"])), encoding="utf-8")
+    assert main(["run", str(path)]) == 0
+    report = json.loads((tmp_path / "results" / "multi.json").read_text(encoding="utf-8"))
+    assert set(report["axes"]) == {"gender"}
+    assert "[gender]" in capsys.readouterr().out

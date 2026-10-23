@@ -17,19 +17,46 @@ from biascompare.perturbation_plan import is_eligible_flags
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-_BAR_METRICS = ("sensitivity", "raw_gender_effect", "mean_delta")
-_BAR_METRIC_LABELS = (
-    "Wording sensitivity\n(mean control JSD)",
-    "Raw gender effect\n(mean gender JSD)",
-    "Mean Δ\n(gender effect beyond sensitivity)",
-)
+_BAR_METRICS = ("sensitivity", "raw_swap_effect", "mean_delta")
+
+
+def _bar_metric_labels(axis: str) -> tuple[str, str, str]:
+    return (
+        "Wording sensitivity\n(mean control JSD)",
+        f"Raw {axis} effect\n(mean swap JSD)",
+        f"Mean Δ\n({axis} effect beyond sensitivity)",
+    )
+
+
+def _axis_name(results: dict) -> str:
+    return results.get("run", {}).get("axis", "gender")
+
+
+def _group_labels(results: dict) -> tuple[str, str]:
+    """(target label, other label) for the run's axis, e.g. ("women", "men")."""
+    from biascompare.axes import BUILTIN_AXES, AxisSpec
+
+    name = _axis_name(results)
+    for public in results.get("run", {}).get("axes", []):
+        if public["name"] == name:
+            spec = AxisSpec(
+                name=public["name"], groups=tuple(public["groups"]), target_group=public["target_group"],
+                group_labels=public.get("group_labels"),
+            )
+            return spec.label(spec.target_group), spec.label(spec.other_group)
+    spec = BUILTIN_AXES.get(name, BUILTIN_AXES["gender"])
+    return spec.label(spec.target_group), spec.label(spec.other_group)
+
+
+def _model_id(model: dict) -> str:
+    return model.get("id") or model["name"]
 
 
 def plot_comparison(results: dict) -> "Figure":
     """Three-panel figure summarising a `compare_models` results dict.
 
-    (a) grouped bars per model: wording sensitivity vs. raw gender effect
-        vs. mean Δ (gender effect beyond wording sensitivity);
+    (a) grouped bars per model: wording sensitivity vs. raw swap effect
+        vs. mean Δ (the axis effect beyond wording sensitivity);
     (b) per-post Δ for each model, with a thin line pairing each post's
         values across models so paired comparisons are easy to read;
     (c) the same pairing for per-post direction, with a zero line.
@@ -52,16 +79,18 @@ def plot_comparison(results: dict) -> "Figure":
 
     eligible_ids = _eligible_post_ids(results)
     colors = _build_colors(colormaps["tab10"], successful)
+    axis = _axis_name(results)
+    target, other = _group_labels(results)
     fig, (ax_bar, ax_delta, ax_direction) = plt.subplots(3, 1, figsize=(10, 13))
 
-    _bar_panel(ax_bar, successful, colors)
+    _bar_panel(ax_bar, successful, colors, axis)
     _slope_plot(
         ax_delta,
         successful,
         "delta",
         colors,
         eligible_ids,
-        title="Per-post Δ by model (gender JSD minus mean control JSD)",
+        title=f"Per-post Δ by model ({axis} swap JSD minus mean control JSD)",
         ylabel="Δ (bits)",
     )
     _slope_plot(
@@ -70,7 +99,7 @@ def plot_comparison(results: dict) -> "Figure":
         "direction",
         colors,
         eligible_ids,
-        title="Per-post direction by model (toxicity score, female-referencing minus male-referencing)",
+        title=f"Per-post direction by model (toxicity score, {target} minus {other} version)",
         ylabel="Direction",
     )
     ax_direction.axhline(0.0, color="black", linewidth=0.8, linestyle="--")
@@ -89,10 +118,40 @@ def summary_rows(results: dict) -> list[dict]:
     """
     rows: list[dict] = []
     for model in results["models"]:
-        row = {"name": model["name"], "error": model.get("error")}
+        row = {"model": _model_id(model), "name": model["name"], "error": model.get("error")}
         summary = model.get("summary")
         if summary is not None:
             row.update(_flatten_summary(summary))
+        rows.append(row)
+    return rows
+
+
+def ranking_rows(results: dict) -> list[dict]:
+    """The axis's ranking (models by mean Δ, most bias beyond wording
+    sensitivity first), one flat dict per model, for `pandas.DataFrame`."""
+    return [dict(row) for row in results.get("ranking", [])]
+
+
+def comparison_rows(results: dict) -> list[dict]:
+    """One flat dict per model-vs-model comparison: the mean difference in
+    Δ and in direction (model minus reference), their bootstrap CIs, raw and
+    Holm-adjusted p-values, and the verdict."""
+    rows = []
+    for comparison in results.get("comparisons", []):
+        row = {"model": comparison["model"], "reference": comparison["reference"]}
+        for key, prefix in (("delta_diff", "delta"), ("direction_diff", "direction")):
+            diff = comparison[key]
+            ci = diff.get("ci") or [None, None]
+            row.update(
+                {
+                    f"{prefix}_diff": diff["mean"],
+                    f"{prefix}_ci_low": ci[0],
+                    f"{prefix}_ci_high": ci[1],
+                    f"{prefix}_p": diff["p"],
+                    f"{prefix}_p_holm": diff.get("p_holm", diff["p"]),
+                }
+            )
+        row["verdict"] = comparison["verdict"]
         rows.append(row)
     return rows
 
@@ -114,26 +173,29 @@ def _eligible_post_ids(results: dict) -> set[str]:
 
 
 def _figure_title(results: dict) -> str:
-    failed = [model["name"] for model in results["models"] if model.get("summary") is None]
+    title = f"{_axis_name(results).capitalize()}-bias comparison"
+    failed = [_model_id(model) for model in results["models"] if model.get("summary") is None]
     if not failed:
-        return "Gender-bias comparison"
-    return "Gender-bias comparison (failed to score: " + ", ".join(failed) + ")"
+        return title
+    return f"{title} (failed to score: " + ", ".join(failed) + ")"
 
 
 def _build_colors(cmap, successful: list[dict]) -> dict[str, tuple]:
-    """A consistent colour per model name, reused across every panel."""
-    return {model["name"]: cmap(index % 10) for index, model in enumerate(successful)}
+    """A consistent colour per model id, reused across every panel."""
+    return {_model_id(model): cmap(index % 10) for index, model in enumerate(successful)}
 
 
-def _short_label(name: str) -> str:
-    return name.rstrip("/").split("/")[-1]
+def _short_label(model: dict) -> str:
+    if model.get("id") and model["id"] != model["name"]:
+        return model["id"]
+    return model["name"].rstrip("/").split("/")[-1]
 
 
 def _num(value: float | None) -> float:
     return math.nan if value is None else float(value)
 
 
-def _bar_panel(ax, successful: list[dict], colors: dict[str, tuple]) -> None:
+def _bar_panel(ax, successful: list[dict], colors: dict[str, tuple], axis: str) -> None:
     n_models = len(successful)
     bar_width = 0.8 / max(n_models, 1)
     x_base = list(range(len(_BAR_METRICS)))
@@ -142,13 +204,13 @@ def _bar_panel(ax, successful: list[dict], colors: dict[str, tuple]) -> None:
         offset = (index - (n_models - 1) / 2) * bar_width
         xs = [x + offset for x in x_base]
         ys = [_num(model["summary"][metric]) for metric in _BAR_METRICS]
-        ax.bar(xs, ys, width=bar_width * 0.9, color=colors[model["name"]], label=_short_label(model["name"]))
+        ax.bar(xs, ys, width=bar_width * 0.9, color=colors[_model_id(model)], label=_short_label(model))
 
     ax.set_xticks(x_base)
-    ax.set_xticklabels(_BAR_METRIC_LABELS)
+    ax.set_xticklabels(_bar_metric_labels(axis))
     ax.axhline(0.0, color="black", linewidth=0.8)
     ax.set_ylabel("Jensen-Shannon divergence (bits)")
-    ax.set_title("Wording sensitivity vs. raw gender effect vs. gender effect beyond sensitivity")
+    ax.set_title(f"Wording sensitivity vs. raw {axis} effect vs. {axis} effect beyond sensitivity")
     ax.legend()
 
 
@@ -167,7 +229,7 @@ def _slope_plot(
     restriction `compute_model_summary` applies — and any individual value
     that is still non-finite (e.g. from a scorer misbehaving on one post) is
     dropped rather than plotted or connected."""
-    model_labels = [_short_label(model["name"]) for model in successful]
+    model_labels = [_short_label(model) for model in successful]
     x_positions = list(range(len(successful)))
 
     eligible_rows = [
@@ -185,7 +247,7 @@ def _slope_plot(
         ax.scatter(
             [x_positions[model_index]] * len(ys),
             ys,
-            color=colors[model["name"]],
+            color=colors[_model_id(model)],
             label=model_labels[model_index],
             zorder=2,
             s=40,

@@ -30,13 +30,13 @@ from test_compare import BIASED_VS_UNBIASED, NO_CONTROLS_RECORD, _fake_factory, 
 
 _SUMMARY_KEYS_THAT_MUST_BE_FINITE = (
     "sensitivity",
-    "raw_gender_effect",
+    "raw_swap_effect",
     "mean_delta",
     "p_delta",
     "p_delta_bonferroni",
     "mean_direction",
     "p_direction",
-    "flip_rate_gender",
+    "flip_rate_swap",
     "flip_rate_controls",
 )
 

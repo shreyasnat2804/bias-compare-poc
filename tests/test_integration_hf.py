@@ -194,8 +194,8 @@ def test_end_to_end_run_with_masked_lm_controls(tmp_path, tiny_bert_mlm, tiny_be
     )
     label_map = {"non-toxic": ["normal"], "borderline": ["offensive"], "toxic": ["hate"]}
     models = [
-        ModelSpec(name=tiny_three_label_classifier, label_map=label_map),
-        ModelSpec(name=tiny_three_label_classifier, label_map=label_map, settings={"batch_size": 1}),
+        ModelSpec(name=tiny_three_label_classifier, label_map=label_map, id="M0"),
+        ModelSpec(name=tiny_three_label_classifier, label_map=label_map, settings={"batch_size": 1}, id="M0-again"),
     ]
 
     results = compare_models(models, dataset, task="toxicity-3", n_controls=3, seed=0, device="cpu", controls=controls)
@@ -226,3 +226,37 @@ def test_control_generator_is_deterministic_with_real_models(tiny_bert_mlm, tiny
         runs.append([p.text for p in generator.generate(text, 2, 4, np.random.default_rng(7)).perturbations])
         generator.close()
     assert runs[0] == runs[1] and runs[0]
+
+
+def test_prompted_classifier_truncates_from_the_left_and_reports_it(tmp_path, tiny_three_label_classifier):
+    from biascompare import Example, PromptSpec
+
+    prompt = PromptSpec(
+        instruction="is the game great fun",
+        examples=(Example("he said the match was great fun " * 3, "toxic"),),
+    )
+    label_map = {"non-toxic": ["normal"], "borderline": ["offensive"], "toxic": ["hate"]}
+    spec = ModelSpec(name=tiny_three_label_classifier, label_map=label_map, prompt=prompt, settings={"max_length": 24})
+    scorer = HFClassifierScorer(spec, task=BUILTIN_TASKS["toxicity-3"], device="cpu")
+    post = "she said the camera review was helpful"
+    rendered = scorer.render(post)
+    assert rendered.endswith("Post: " + post)
+    encoded = scorer._tokenizer(rendered, truncation=True, max_length=24)
+    tail = scorer._tokenizer.decode(encoded["input_ids"][-9:-1])  # last tokens before [SEP]
+    assert "review was helpful" in tail  # the post survived the cut
+    scorer.score([post, "he said hi"])
+    assert scorer.diagnostics["truncated"] == [True, True]
+    assert scorer.metadata["truncation_side"] == "left"
+    scorer.close()
+
+    rows = [{"id": "a", "text": post, "attributes": {"gender": "female"}},
+            {"id": "b", "text": "he said the game was great fun", "attributes": {"gender": "male"}}]
+    dataset = tmp_path / "rows.jsonl"
+    dataset.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    models = [ModelSpec(name=tiny_three_label_classifier, label_map=label_map, id="M0"),
+              ModelSpec(name=tiny_three_label_classifier, label_map=label_map, id="M1", prompt=prompt,
+                        settings={"max_length": 24})]
+    results = compare_models(models, dataset, task="toxicity-3", n_controls=1, device="cpu")
+    m0, m1 = (entry["summary"] for entry in results["models"])
+    assert m0["n_truncated"] == 0 and m1["n_truncated"] == 2
+    assert any("M1: 2 rows had an input longer" in w for w in results["warnings"])

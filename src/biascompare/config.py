@@ -1,7 +1,9 @@
 """Run configuration files. See docs/PLAN.md §7 and docs/DATA.md §3.2.
 
 A run is described by one JSON or YAML file so it can be versioned and
-rerun. `load_config` validates it strictly (unknown keys are errors, with
+rerun. It names the models (each with an optional `id` and `prompt`), the
+dataset, the task levels, one axis (`axis`) or several (`axes`), the control
+method and the comparison mode. `load_config` validates it strictly (unknown keys are errors, with
 the allowed keys listed) and returns a frozen `RunConfig`; `run` executes
 it. Relative paths in the file are resolved against the file's directory.
 
@@ -16,15 +18,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from biascompare.compare import compare_models
+from biascompare.axes import AxisSpec, get_axis
+from biascompare.compare import compare_axes, compare_models
 from biascompare.inputs import ModelSpec
 from biascompare.perturb import ControlsSpec
+from biascompare.prompts import PromptSpec, prompt_from_dict
 from biascompare.tasks import TaskSpec, get_task
 
 _RUN_KEYS = frozenset(
-    {"dataset", "models", "task", "axis", "n_controls", "seed", "alpha", "device", "controls", "output"}
+    {"dataset", "models", "task", "axis", "axes", "n_controls", "seed", "alpha", "device", "controls",
+     "output", "prompts", "comparisons"}
 )
-_MODEL_KEYS = frozenset({"type", "name", "toxic_label", "label_map", "revision", "token_env"})
+_MODEL_KEYS = frozenset({"type", "name", "toxic_label", "label_map", "revision", "token_env", "id", "prompt"})
+_AXIS_KEYS = frozenset({"name", "groups", "target_group", "group_labels", "lexicon"})
 _TASK_KEYS = frozenset({"name", "levels", "toxic_from", "instruction"})
 _CONTROLS_KEYS = frozenset(field.name for field in fields(ControlsSpec))
 
@@ -36,13 +42,20 @@ class RunConfig:
     dataset: Path
     models: tuple[ModelSpec, ...]
     task: TaskSpec
-    axis: str = "gender"
+    axes: tuple[AxisSpec, ...] = (get_axis("gender"),)
+    multi_axis: bool = False
+    comparisons: str = "all-pairs"
     n_controls: int = 5
     seed: int = 0
     alpha: float = 0.05
     device: str = "auto"
     controls: ControlsSpec = ControlsSpec()
     output: Path | None = None
+
+    @property
+    def axis(self) -> AxisSpec:
+        """The first (for a single-axis config, the only) axis."""
+        return self.axes[0]
 
 
 def load_config(path: str | Path) -> RunConfig:
@@ -69,12 +82,22 @@ def config_from_dict(raw: Mapping, base_dir: str | Path = ".") -> RunConfig:
     if not isinstance(models, list) or len(models) < 2:
         raise ValueError("run config 'models' must be a list of at least 2 model entries")
 
+    if "axis" in raw and "axes" in raw:
+        raise ValueError("run config: give either 'axis' (one axis) or 'axes' (a list), not both")
+    multi_axis = "axes" in raw
+    axes_raw = raw["axes"] if multi_axis else [raw.get("axis", "gender")]
+    if not isinstance(axes_raw, list) or not axes_raw:
+        raise ValueError("run config 'axes' must be a non-empty list of axis names or axis objects")
+    prompts = _prompts_from_value(raw.get("prompts"))
+
     output = raw.get("output")
     return RunConfig(
         dataset=_resolve(base, raw["dataset"], "dataset"),
-        models=tuple(_model_from_dict(entry, index) for index, entry in enumerate(models)),
+        models=tuple(_model_from_dict(entry, index, prompts) for index, entry in enumerate(models)),
         task=_task_from_value(raw.get("task")),
-        axis=_typed(raw, "axis", str, "gender"),
+        axes=tuple(_axis_from_value(value, base) for value in axes_raw),
+        multi_axis=multi_axis,
+        comparisons=_typed(raw, "comparisons", str, "all-pairs"),
         n_controls=_typed(raw, "n_controls", int, 5),
         seed=_typed(raw, "seed", int, 0),
         alpha=float(_typed(raw, "alpha", (int, float), 0.05)),
@@ -85,18 +108,21 @@ def config_from_dict(raw: Mapping, base_dir: str | Path = ".") -> RunConfig:
 
 
 def run(config: RunConfig) -> dict:
-    """Execute `config` and return the results dict (see `compare_models`)."""
-    return compare_models(
-        list(config.models),
-        config.dataset,
+    """Execute `config`. A config with `axes` returns a `compare_axes`
+    report (one block per axis); one with `axis` returns `compare_models`
+    results."""
+    common = dict(
         n_controls=config.n_controls,
         seed=config.seed,
         alpha=config.alpha,
         device=config.device,
         task=config.task,
-        axis=config.axis,
         controls=config.controls,
+        comparisons=config.comparisons,
     )
+    if config.multi_axis:
+        return compare_axes(list(config.models), config.dataset, axes=list(config.axes), **common)
+    return compare_models(list(config.models), config.dataset, axis=config.axis, **common)
 
 
 def _read_mapping(path: Path) -> object:
@@ -140,7 +166,7 @@ def _resolve(base: Path, value: object, key: str) -> Path:
     return path if path.is_absolute() else base / path
 
 
-def _model_from_dict(entry: object, index: int) -> ModelSpec:
+def _model_from_dict(entry: object, index: int, prompts: Mapping[str, PromptSpec] | None = None) -> ModelSpec:
     where = f"models[{index}]"
     if not isinstance(entry, Mapping):
         raise ValueError(f"{where} must be an object, got {entry!r}")
@@ -163,6 +189,8 @@ def _model_from_dict(entry: object, index: int) -> ModelSpec:
             revision=entry.get("revision"),
             token_env=entry.get("token_env"),
             settings=settings,
+            id=entry.get("id"),
+            prompt=_model_prompt(entry.get("prompt"), prompts or {}),
         )
     except ValueError as exc:
         raise ValueError(f"{where}: {exc}") from None
@@ -193,3 +221,50 @@ def _controls_from_value(value: object) -> ControlsSpec:
         raise ValueError(f"run config 'controls' must be a method name or an object, got {value!r}")
     _reject_unknown("controls", value, _CONTROLS_KEYS)
     return ControlsSpec(**value)
+
+
+def _prompts_from_value(value: object) -> dict[str, PromptSpec]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("run config 'prompts' must map prompt names to prompt objects")
+    prompts = {}
+    for name, raw in value.items():
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"prompt {name!r} must be an object")
+        prompts[name] = prompt_from_dict(raw, name=name)
+    return prompts
+
+
+def _model_prompt(value: object, prompts: Mapping[str, PromptSpec]) -> PromptSpec | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value not in prompts:
+            raise ValueError(f"prompt {value!r} is not defined under 'prompts' (defined: {sorted(prompts)})")
+        return prompts[value]
+    if isinstance(value, Mapping):
+        return prompt_from_dict(value)
+    raise ValueError(f"a model's prompt must be a prompt name or a prompt object, got {value!r}")
+
+
+def _axis_from_value(value: object, base: Path) -> AxisSpec:
+    if isinstance(value, str):
+        return get_axis(value)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"an axis must be a built-in name or an object, got {value!r}")
+    _reject_unknown("axis", value, _AXIS_KEYS)
+    for required in ("name", "groups", "target_group"):
+        if required not in value:
+            raise ValueError(f"axis block is missing required key {required!r}")
+    lexicon = value.get("lexicon")
+    if lexicon is not None:
+        candidate = base / lexicon
+        lexicon = str(candidate) if candidate.is_file() else lexicon
+    return AxisSpec(
+        name=value["name"],
+        groups=tuple(value["groups"]),
+        target_group=value["target_group"],
+        group_labels=value.get("group_labels"),
+        lexicon=lexicon,
+    )

@@ -1,13 +1,17 @@
 """Choosing and building the control generator for a run. See docs/PLAN.md §3.3.
 
 `ControlsSpec` is the serialisable description of how controls are made;
-`build_control_generator` turns it into a generator. `synonyms` (the POC's
-hand-written list) stays the default so existing runs reproduce exactly;
-`masked-lm` is the one to use on real datasets.
+`build_control_generator` turns it into a generator:
+
+- `synonyms`: the POC's hand-written list, extended by each row's tagged
+  synonyms. The default, so existing runs reproduce exactly.
+- `tagged`: each row's tagged synonyms only (the study's verified tags).
+- `masked-lm`: a helper masked LM proposes replacements for any content
+  word; tagged and listed synonyms take precedence for their words.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
@@ -15,11 +19,19 @@ import numpy as np
 
 from .controls import ControlSet, SynonymControls
 
-CONTROL_METHODS = ("synonyms", "masked-lm")
+CONTROL_METHODS = ("synonyms", "tagged", "masked-lm")
 
 
 class ControlGenerator(Protocol):
-    def generate(self, text: str, n_words: int, k: int, rng: np.random.Generator) -> ControlSet: ...
+    def generate(
+        self,
+        text: str,
+        n_words: int,
+        k: int,
+        rng: np.random.Generator,
+        row_synonyms: Mapping[str, Sequence[str]] | None = None,
+        row_protected: Iterable[str] = (),
+    ) -> ControlSet: ...
 
 
 @dataclass(frozen=True)
@@ -50,8 +62,8 @@ class ControlsSpec:
             raise ValueError(f"controls.min_similarity must be in [0, 1], got {self.min_similarity!r}")
 
     def to_public_dict(self) -> dict:
-        if self.method == "synonyms":
-            return {"method": "synonyms"}
+        if self.method in ("synonyms", "tagged"):
+            return {"method": self.method}
         public = asdict(self)
         public.pop("device")
         return public
@@ -61,8 +73,10 @@ def build_control_generator(spec: ControlsSpec, extra_protected: Iterable[str] =
     """Build the generator `spec` describes. Masked-LM helper models are
     loaded here; call `close_control_generator` when done with it."""
     extra_protected = tuple(extra_protected)
-    if spec.method == "synonyms":
-        return SynonymControls.from_resources(extra_protected=extra_protected)
+    if spec.method in ("synonyms", "tagged"):
+        return SynonymControls.from_resources(
+            extra_protected=extra_protected, use_synonym_list=spec.method == "synonyms"
+        )
 
     from .mlm_controls import HFMaskedLMSubstituter, HFSentenceSimilarity, MaskedLMControls
 

@@ -64,10 +64,10 @@ def test_three_level_direction_is_a_severity_difference():
     posts = {post["id"]: post for post in results["posts"]}
     for metric in results["models"][0]["per_post"]:
         post = posts[metric["post_id"]]
-        orig, swap = metric["p_original"], metric["p_gender_swap"]
+        orig, swap = metric["p_original"], metric["p_swap"]
         sev_orig = (orig[1] + 2 * orig[2]) / 2
         sev_swap = (swap[1] + 2 * swap[2]) / 2
-        expected = sev_orig - sev_swap if post["gender"] == "female" else sev_swap - sev_orig
+        expected = sev_orig - sev_swap if post["group"] == "female" else sev_swap - sev_orig
         assert metric["direction"] == pytest.approx(expected)
 
 

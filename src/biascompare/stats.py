@@ -109,3 +109,17 @@ def bonferroni(p: float, n_tests: int) -> float:
     if math.isnan(p):
         return _NAN
     return float(min(1.0, p * n_tests))
+
+
+def holm(p_values: Sequence[float]) -> list[float]:
+    """Holm step-down adjusted p-values (family-wise error control across
+    the model-vs-model comparisons of one run). nan entries are left as nan
+    and do not count towards the family size."""
+    indexed = [(p, i) for i, p in enumerate(p_values) if not math.isnan(p)]
+    adjusted = [_NAN] * len(p_values)
+    m = len(indexed)
+    running = 0.0
+    for rank, (p, i) in enumerate(sorted(indexed)):
+        running = max(running, min(1.0, (m - rank) * p))
+        adjusted[i] = float(running)
+    return adjusted

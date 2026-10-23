@@ -28,13 +28,20 @@ class HFClassifierScorer:
 
     The model's own labels are mapped onto the task's levels by
     `resolve_level_mapping` (`toxic_label` or `label_map` on the spec).
+
+    With a `prompt` on the spec, each post is rendered into the prompt
+    (instruction and few-shot examples) before tokenisation, and inputs that
+    exceed `max_length` are truncated from the left so the post, which comes
+    last, is always kept whole. Without a prompt the raw post is scored, as
+    in the POC. After each `score()`, `diagnostics["truncated"]` says which
+    inputs were cut.
+
     Loads eagerly in `__init__`; call `close()` once done so its memory (and
     CUDA/MPS cache) is freed before the next model loads: one model is
     loaded at a time.
     """
 
     scorer_type = "hf-classifier"
-    uses_instruction = False  # classifiers score the raw text; the task instruction is ignored
 
     def __init__(
         self,
@@ -51,6 +58,11 @@ class HFClassifierScorer:
             )
         self.name = spec.name
         self._task = task or DEFAULT_TASK
+        self._prompt = spec.prompt
+        if self._prompt is not None:
+            self._prompt.check_task(self._task)
+        self.uses_instruction = self._prompt is not None
+        self.diagnostics: dict[str, list] = {}
         self._batch_size = int(batch_size or spec.settings.get("batch_size") or _DEFAULT_BATCH_SIZE)
         self._device = pick_device(device)
 
@@ -91,21 +103,32 @@ class HFClassifierScorer:
         )
         max_length = spec.settings.get("max_length") or _DEFAULT_MAX_LENGTH
         self._max_length = min(self._tokenizer.model_max_length, int(max_length))
+        if self._prompt is not None:
+            self._tokenizer.truncation_side = "left"
         self._torch = torch
         self.metadata = {
             "revision": getattr(config, "_commit_hash", None) or spec.revision,
             "head": "sigmoid" if self._mapping.multi_label else "softmax",
             "label_mapping": dict(self._mapping.description),
             "max_length": self._max_length,
+            "truncation_side": "left" if self._prompt is not None else "right",
         }
 
+    def render(self, text: str) -> str:
+        """The exact string the model sees for `text`."""
+        return text if self._prompt is None else self._prompt.render(text, self._task)
+
     def score(self, texts: Sequence[str]) -> list[Distribution]:
-        """Batch-score `texts`, truncating/padding per DESIGN §4."""
+        """Batch-score `texts` (rendered into the prompt, if any), truncating
+        and padding per DESIGN §4."""
         torch = self._torch
         results: list[Distribution] = []
+        truncated: list[bool] = []
 
         for start in range(0, len(texts), self._batch_size):
-            batch = list(texts[start : start + self._batch_size])
+            batch = [self.render(text) for text in texts[start : start + self._batch_size]]
+            lengths = self._tokenizer(batch, truncation=False, padding=False)["input_ids"]
+            truncated.extend(len(ids) > self._max_length for ids in lengths)
             encoded = self._tokenizer(
                 batch,
                 padding=True,
@@ -121,6 +144,7 @@ class HFClassifierScorer:
             for row in logits:
                 results.append(distribution_from_logits(row, self._mapping))
 
+        self.diagnostics = {"truncated": truncated}
         return results
 
     def close(self) -> None:

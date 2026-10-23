@@ -17,21 +17,25 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 
-from biascompare.axes import axis_groups
+from biascompare.axes import AxisSpec, get_axis
+from biascompare.prompts import PromptSpec
 
 _LEGACY_REQUIRED_FIELDS = ("id", "platform", "text", "gender")
 _LEGACY_GENDERS = frozenset({"male", "female"})
 _V1_REQUIRED_FIELDS = ("id", "text", "attributes")
-_V1_FIELDS = frozenset({"id", "text", "attributes", "label", "meta", "lang"})
+_V1_FIELDS = frozenset({"id", "text", "attributes", "label", "meta", "lang", "swaps", "synonyms"})
 _SUPPORTED_LANGS = frozenset({"en"})
 _SETTING_TYPES = (str, int, float, bool, type(None))
 
 _EMPTY: Mapping = MappingProxyType({})
+_WORD = re.compile(r"[A-Za-z]+")
+_SINGLE_WORD = re.compile(r"^[A-Za-z]+$")
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,11 @@ class ModelSpec:
       `repr()`, equality and `to_public_dict()`, so it never reaches logs or
       results.
     - `settings` holds adapter-specific scalars (`batch_size`, `max_length`).
+    - `id` is the model's name in the results (`M0`, `M1`, ...); it defaults
+      to `name` and must be unique in a run, so one Hugging Face model can
+      appear twice with different prompts.
+    - `prompt` wraps each post before the model sees it (instruction and
+      few-shot examples, see `biascompare.prompts`); `None` scores the raw post.
     """
 
     name: str
@@ -57,6 +66,8 @@ class ModelSpec:
     revision: str | None = None
     token_env: str | None = None
     settings: Mapping[str, object] = _EMPTY
+    id: str | None = None
+    prompt: PromptSpec | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
@@ -67,6 +78,10 @@ class ModelSpec:
             )
         if not isinstance(self.type, str) or not self.type.strip():
             raise ValueError(f"ModelSpec.type must be a non-empty string, got {self.type!r}")
+        if self.id is not None and (not isinstance(self.id, str) or not self.id.strip()):
+            raise ValueError(f"ModelSpec.id must be a non-empty string when given, got {self.id!r}")
+        if self.prompt is not None and not isinstance(self.prompt, PromptSpec):
+            raise ValueError(f"ModelSpec.prompt must be a PromptSpec, got {type(self.prompt).__name__}")
         if self.label_map is not None:
             object.__setattr__(self, "label_map", _freeze_label_map(self.name, self.label_map))
         object.__setattr__(self, "settings", _freeze_settings(self.name, self.settings))
@@ -75,8 +90,13 @@ class ModelSpec:
         label_map = None if self.label_map is None else tuple(self.label_map.items())
         return hash(
             (self.name, self.toxic_label, self.type, label_map, self.revision, self.token_env,
-             tuple(sorted(self.settings.items())))
+             tuple(sorted(self.settings.items())), self.id, self.prompt)
         )
+
+    @property
+    def display_id(self) -> str:
+        """The model's identifier in results: `id` if set, else `name`."""
+        return self.id or self.name
 
     @property
     def label(self) -> str:
@@ -98,6 +118,10 @@ class ModelSpec:
     def to_public_dict(self) -> dict:
         """Serialisable view for results/logs. Never includes the token."""
         public: dict = {"name": self.name, "toxic_label": self.toxic_label}
+        if self.id is not None:
+            public["id"] = self.id
+        if self.prompt is not None:
+            public["prompt"] = self.prompt.to_public_dict()
         if self.type != "hf-classifier":
             public["type"] = self.type
         if self.label_map is not None:
@@ -155,6 +179,8 @@ class Post:
     label: str | None = None
     meta: Mapping[str, object] = _EMPTY
     lang: str = "en"
+    swaps: Mapping[str, tuple[tuple[str, str], ...]] = _EMPTY
+    synonyms: Mapping[str, tuple[str, ...]] = _EMPTY
 
     def __post_init__(self) -> None:
         _require_nonempty_str("id", self.id)
@@ -178,6 +204,19 @@ class Post:
                 f"Post.lang {self.lang!r} is not supported (id={self.id!r}); only English lexicons "
                 f"exist, so lang must be one of {sorted(_SUPPORTED_LANGS)}"
             )
+        object.__setattr__(self, "swaps", _freeze_swaps(self.id, self.swaps))
+        object.__setattr__(self, "synonyms", _freeze_synonyms(self.id, self.synonyms))
+
+    def swap_words(self) -> frozenset[str]:
+        """Every word in this row's tagged swaps (both sides, every axis).
+        Controls never change or introduce these."""
+        return frozenset(
+            word.lower()
+            for pairs in self.swaps.values()
+            for pair in pairs
+            for phrase in pair
+            for word in _WORD.findall(phrase)
+        )
 
     def __hash__(self) -> int:
         # `meta` may hold unhashable JSON values; id and text are enough to
@@ -226,19 +265,71 @@ class Post:
             raise ValueError(f"Post {self.id!r} has no attribute for axis {axis!r}") from None
 
 
+def _freeze_swaps(post_id: str, swaps: object) -> Mapping[str, tuple[tuple[str, str], ...]]:
+    if not isinstance(swaps, Mapping):
+        raise ValueError(f"Post.swaps must be an object of axis -> [[phrase, replacement], ...] (id={post_id!r})")
+    frozen: dict[str, tuple[tuple[str, str], ...]] = {}
+    for axis, pairs in swaps.items():
+        if not isinstance(pairs, Sequence) or isinstance(pairs, str):
+            raise ValueError(f"Post.swaps[{axis!r}] must be a list of [phrase, replacement] pairs (id={post_id!r})")
+        checked = []
+        for pair in pairs:
+            if (
+                not isinstance(pair, Sequence) or isinstance(pair, str) or len(pair) != 2
+                or not all(isinstance(side, str) and _WORD.search(side) for side in pair)
+            ):
+                raise ValueError(
+                    f"Post.swaps[{axis!r}] entries must be [phrase, replacement] with words on both "
+                    f"sides, got {pair!r} (id={post_id!r})"
+                )
+            if pair[0].strip().lower() == pair[1].strip().lower():
+                raise ValueError(f"Post.swaps[{axis!r}] pair {list(pair)!r} changes nothing (id={post_id!r})")
+            checked.append((pair[0], pair[1]))
+        frozen[axis] = tuple(checked)
+    return MappingProxyType(frozen)
+
+
+def _freeze_synonyms(post_id: str, synonyms: object) -> Mapping[str, tuple[str, ...]]:
+    if not isinstance(synonyms, Mapping):
+        raise ValueError(f"Post.synonyms must be an object of word -> [synonyms] (id={post_id!r})")
+    frozen: dict[str, tuple[str, ...]] = {}
+    for word, options in synonyms.items():
+        if not isinstance(word, str) or not _SINGLE_WORD.match(word):
+            raise ValueError(f"Post.synonyms keys must be single words, got {word!r} (id={post_id!r})")
+        if isinstance(options, str):
+            options = [options]
+        if not isinstance(options, Sequence) or not options or not all(
+            isinstance(option, str) and _WORD.search(option) for option in options
+        ):
+            raise ValueError(f"Post.synonyms[{word!r}] must be a non-empty list of words (id={post_id!r})")
+        frozen[word] = tuple(options)
+    return MappingProxyType(frozen)
+
+
 def _require_nonempty_str(field_name: str, value: object) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Post.{field_name} must be a non-empty string, got {value!r}")
 
 
-def load_posts(path: str | Path, axis: str = "gender") -> tuple[Post, ...]:
+def load_posts(
+    path: str | Path,
+    axis: AxisSpec | str = "gender",
+    axes: Sequence[AxisSpec | str] | None = None,
+    require_axis: bool = True,
+) -> tuple[Post, ...]:
     """Load and validate dataset rows from a JSONL file (docs/DATA.md §2).
 
     One JSON object per non-blank line, in either the v1 or the v0.1 format
     (decided per line by the presence of `attributes`). Validates: valid
     JSON objects (errors name the line number), required fields present,
-    no unknown top-level v1 fields, the `axis` attribute present and one of
-    the axis's groups, unique ids, and at least one row.
+    no unknown top-level v1 fields, tagged swaps and synonyms well formed,
+    unique ids, and at least one row.
+
+    With `axis` (the default), every row must have that axis in its
+    `attributes`. With `axes`, a row needs at least one of them. With
+    `require_axis=False` (what a run uses), rows need none of them: a run
+    then uses, per axis, the rows that have it. Any attribute that is
+    present must name one of its axis's groups.
 
     Raises ValueError with an actionable message for any violation.
     """
@@ -246,7 +337,7 @@ def load_posts(path: str | Path, axis: str = "gender") -> tuple[Post, ...]:
     if not file_path.is_file():
         raise ValueError(f"Posts file not found: {file_path}")
 
-    groups = axis_groups(axis)
+    specs = [get_axis(name) for name in (axes if axes is not None else [axis])]
     posts: list[Post] = []
     seen_ids: set[str] = set()
 
@@ -259,7 +350,9 @@ def load_posts(path: str | Path, axis: str = "gender") -> tuple[Post, ...]:
             record = _parse_json_line(line, line_number, file_path)
             _require_dict_record(record, line_number, file_path)
             try:
-                post = _post_from_record(record, axis, groups)
+                post = _post_from_record(
+                    record, specs, require="none" if not require_axis else ("each" if axes is None else "any")
+                )
             except ValueError as exc:
                 raise ValueError(f"Line {line_number} of {file_path}: {exc}") from exc
 
@@ -274,18 +367,27 @@ def load_posts(path: str | Path, axis: str = "gender") -> tuple[Post, ...]:
     return tuple(posts)
 
 
-def _post_from_record(record: dict, axis: str, groups: tuple[str, str]) -> Post:
+def _post_from_record(record: dict, specs: list[AxisSpec], require: str) -> Post:
     if "attributes" in record:
         post = _post_from_v1(record)
     else:
         post = _post_from_legacy(record)
 
-    if axis not in post.attributes:
-        raise ValueError(f"row {post.id!r} has no {axis!r} entry in attributes")
-    if post.attributes[axis] not in groups:
+    present = 0
+    for spec in specs:
+        if spec.name not in post.attributes:
+            if require == "each":
+                raise ValueError(f"row {post.id!r} has no {spec.name!r} entry in attributes")
+            continue
+        present += 1
+        if post.attributes[spec.name] not in spec.groups:
+            raise ValueError(
+                f"row {post.id!r} attributes.{spec.name} must be one of {list(spec.groups)}, "
+                f"got {post.attributes[spec.name]!r}"
+            )
+    if present == 0 and require == "any":
         raise ValueError(
-            f"row {post.id!r} attributes.{axis} must be one of {list(groups)}, "
-            f"got {post.attributes[axis]!r}"
+            f"row {post.id!r} has no attributes for any of the axes {[spec.name for spec in specs]}"
         )
     return post
 
@@ -307,6 +409,8 @@ def _post_from_v1(record: dict) -> Post:
         label=record.get("label"),
         meta=record.get("meta") or {},
         lang=record.get("lang", "en"),
+        swaps=record.get("swaps") or {},
+        synonyms=record.get("synonyms") or {},
     )
 
 

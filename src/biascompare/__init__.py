@@ -7,15 +7,26 @@ Public API. `plot_comparison`/`summary_rows` are imported from
 
 from __future__ import annotations
 
-from biascompare.compare import compare_models, preview_perturbations
+from biascompare.axes import BUILTIN_AXES, AxisSpec, get_axis
+from biascompare.compare import axis_results, compare_axes, compare_models, preview_perturbations
 from biascompare.config import RunConfig, config_from_dict, load_config, run
 from biascompare.inputs import ModelSpec, Post, load_posts
 from biascompare.perturb import ControlsSpec
+from biascompare.prompts import Example, PromptSpec
 from biascompare.results import save_results
 from biascompare.tasks import BUILTIN_TASKS, TaskSpec, get_task
-from biascompare.viz import plot_comparison, summary_rows
+from biascompare.viz import comparison_rows, plot_comparison, ranking_rows, summary_rows
 
 __all__ = [
+    "AxisSpec",
+    "BUILTIN_AXES",
+    "get_axis",
+    "PromptSpec",
+    "Example",
+    "compare_axes",
+    "axis_results",
+    "ranking_rows",
+    "comparison_rows",
     "ModelSpec",
     "Post",
     "load_posts",
