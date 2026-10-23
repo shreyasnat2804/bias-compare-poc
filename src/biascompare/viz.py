@@ -70,7 +70,7 @@ def plot_comparison(results: dict) -> "Figure":
         "direction",
         colors,
         eligible_ids,
-        title="Per-post direction by model (P(toxic) female-referencing minus male-referencing)",
+        title="Per-post direction by model (toxicity score, female-referencing minus male-referencing)",
         ylabel="Direction",
     )
     ax_direction.axhline(0.0, color="black", linewidth=0.8, linestyle="--")

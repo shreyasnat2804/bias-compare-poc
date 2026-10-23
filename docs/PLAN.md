@@ -1,8 +1,8 @@
 # biascompare: framework plan
 
-Status: draft for review. Nothing in this document is implemented yet unless it says
-"today". The POC design record is [`DESIGN.md`](../DESIGN.md); section references like
-"DESIGN §6" point there.
+Status: Phase 1 implemented (see §11 for what is built and what is still to verify).
+Items marked **planned** belong to later phases. The POC design record is
+[`DESIGN.md`](../DESIGN.md); section references like "DESIGN §6" point there.
 
 ## 1. Goal
 
@@ -36,9 +36,10 @@ Every statistic in the POC is computed from one thing: for each input text, a
 **probability distribution over a fixed set of outcomes**. The POC hard-codes that set
 as `[P(non-toxic), P(toxic)]`.
 
-The framework keeps that contract and generalises it: a **task** defines the label set,
-and every model, whatever its architecture, is wrapped in an **adapter** whose only job
-is to turn a batch of texts into one distribution over the task's labels per text.
+The framework keeps that contract and generalises it: a **task** defines an ordered
+set of 2 to 4 toxicity levels, and every model, whatever its architecture, is wrapped in
+an **adapter** whose only job is to turn a batch of texts into one distribution over
+those levels per text.
 
 ```
                      ┌───────────────┐
@@ -53,7 +54,7 @@ is to turn a batch of texts into one distribution over the task's labels per tex
           │                  │                  │                  │
           └──────────────────┴────────┬─────────┴──────────────────┘
                                       ▼
-                  one distribution over task labels per text
+                  one distribution over task levels per text
                                       │
                                       ▼
                  metrics, statistics, comparisons, verdicts
@@ -68,20 +69,22 @@ model means writing one adapter, not touching the statistics.
 ### 3.1 Task
 
 A task says what question every model is answering. It is defined once per run and
-shared by all models.
+shared by all models. Decision: the framework is for **toxicity only, with 2 to 4
+ordered levels**; no other label sets.
 
-| Field | Meaning | Toxicity example |
-|-|-|-|
-| `name` | Identifier | `toxicity` |
-| `labels` | Ordered outcome set, K ≥ 2 | `["non-toxic", "toxic"]` |
-| `target_label` | The label whose probability `direction` is measured on | `toxic` |
-| `instruction` | Natural-language question, used only by prompted adapters | `Is the following social media post toxic?` |
-| `options` | Per label, the answer string an LLM is asked to produce | `{"non-toxic": "No", "toxic": "Yes"}` |
-| `verbalizers` | Per label, words a masked LM may fill in | `{"non-toxic": ["fine", "harmless"], "toxic": ["toxic", "offensive"]}` |
-| `prompt_template` | How instruction, options and text are combined for LLMs | see §5 |
+| Field | Meaning | Example | Status |
+|-|-|-|-|
+| `name` | Identifier | `toxicity-3` | built |
+| `levels` | 2 to 4 levels, least to most toxic | `["non-toxic", "borderline", "toxic"]` | built |
+| `toxic_from` | First level counted as toxic in the binary readout `p_toxic` | `toxic` | built |
+| `instruction` | Natural-language question, used only by prompted adapters | `How toxic is the following post?` | built, unused until Phase 2 |
+| `options` | Per level, the answer string an LLM is asked to produce | `{"non-toxic": "None", "borderline": "Some", "toxic": "Clear"}` | planned |
+| `verbalizers` | Per level, words a masked LM may fill in | `{"non-toxic": ["fine"], "toxic": ["toxic"]}` | planned |
+| `prompt_template` | How instruction, options and text are combined for LLMs | see §5 | planned |
 
-A built-in `toxicity` task ships with the package so the common case needs no task
-config. The POC's run-level `instruction` argument moves into the task.
+Built-in tasks: `toxicity` (2 levels, the default), `toxicity-3` and `toxicity-4`
+(DATA.md §3.1). The POC's run-level `instruction` argument now sets the task's
+instruction.
 
 ### 3.2 Model adapters
 
@@ -95,80 +98,92 @@ instruction and template; classifiers ignore them, exactly as in the POC.
 | `hf-causal-lm` | Llama, Mistral, Qwen, Gemma, ... run locally | Logits for each option's answer tokens after the rendered prompt, then normalised over the options | Yes |
 | `api-llm` | Hosted LLMs | Token log-probabilities if the API returns them; otherwise the empirical distribution of N sampled answers | Yes |
 
-Protocol sketch (generalises `scoring/base.py` today):
+The protocol as built in Phase 1 (`scoring/base.py`):
 
 ```python
 class Scorer(Protocol):
     name: str
     scorer_type: str          # "hf-classifier", "hf-causal-lm", ...
     uses_instruction: bool
+    # optional: metadata: dict, copied into run.models[] (revision, label mapping, ...)
 
-    def score(self, texts: Sequence[str]) -> list[ScoredText]: ...
+    def score(self, texts: Sequence[str]) -> list[tuple[float, ...]]: ...  # one prob per level
     def close(self) -> None: ...
 
-@dataclass(frozen=True)
-class ScoredText:
-    probs: tuple[float, ...]          # one per task label, sums to 1
-    diagnostics: Mapping[str, float]  # e.g. option_mass, invalid_rate, truncated
+ScorerFactory = Callable[[ModelSpec, TaskSpec, str], Scorer]  # (spec, task, device)
 ```
 
-Adapters are built by a registry keyed on `type`, so the orchestration code does not
-import any of them directly. `torch`, `transformers` and API client libraries stay lazy
-imports inside the adapter that needs them, and each is an optional extra
-(`pip install biascompare[hf]`, `biascompare[api]`).
+Every returned distribution is checked (length equals the number of levels, finite,
+non-negative, sums to 1); a model that fails the check is recorded as an error. Planned
+for the LLM adapters: per-text diagnostics (option mass, invalid answer rate,
+truncation) next to the probabilities.
+
+Adapters are built by a registry keyed on `type` (`scoring/registry.py`), so the
+orchestration code does not import any of them directly. `torch`, `transformers` and API
+client libraries stay lazy imports inside the adapter that needs them; making each an
+optional extra (`biascompare[hf]`, `biascompare[api]`) is planned with Phase 2.
 
 ### 3.3 Perturbations
 
 The perturbation layer is already model-independent and stays that way.
 
-- **Targeted swap**: today a gender lexicon swap (DESIGN §5.1). Generalised to an axis
-  registry: an axis is a lexicon file plus a swapper, so new axes (race via names,
-  religion, age) are data, not code, where a word-level swap is valid.
-- **Controls**: today a hand-written synonym list (DESIGN §5.2) that only covers the
-  sample posts. This is the main blocker for real datasets (see DATA.md §2.4) and is
-  replaced in Phase 1 by masked-LM substitution with a semantic-similarity filter,
-  using small helper models that are separate from the models under test.
+- **Targeted swap**: a gender lexicon swap (DESIGN §5.1), looked up through an axis
+  registry (`axes.py`): an axis is a lexicon file plus a swapper, so new axes (race via
+  names, religion, age) are data, not code, where a word-level swap is valid. Only
+  `gender` exists.
+- **Controls**: two generators behind one interface (`perturb/factory.py`). `synonyms`
+  is the POC's hand-written list (DESIGN §5.2), still the default so the POC reproduces
+  exactly, but it only covers the sample posts. `masked-lm` (built in Phase 1,
+  `perturb/mlm_controls.py`) works on arbitrary text: a helper masked LM proposes
+  in-context replacements for content words, and a sentence-embedding similarity
+  filter drops controls that drift from the original. Both helper models are separate
+  from the models under test and are freed before any of those load. Known limit: a
+  masked LM can propose antonyms ("great" for "awful"), which a similarity filter does
+  not fully catch, so the threshold needs checking on real data (§11).
 - **Only the text slot is perturbed.** For prompted models the instruction, options and
   system prompt are fixed text around the row's `text`; they are never swapped.
 
 ### 3.4 Metrics and statistics
 
-The statistics in `stats.py`, `comparisons.py` and `verdicts.py` already work on
-per-row scalars (Δi, direction) and carry over as they are. The per-row metrics need
-small, mechanical generalisations:
+The statistics in `stats.py`, `comparisons.py` and `verdicts.py` work on per-row
+scalars (Δi, direction) and carried over unchanged. The per-row metrics were
+generalised to K levels in Phase 1; for K = 2 every number is identical to the POC
+(locked by a golden-file test, §10):
 
-| Metric | Today (K = 2 only) | Framework (any K) |
+| Metric | POC (2 levels) | Framework (2 to 4 levels) |
 |-|-|-|
-| `jsd_*` | JSD over `[P(non-toxic), P(toxic)]` | JSD over the full K-label distribution (`js_divergence` already handles any K) |
-| `flip_*` | `P(toxic) ≥ 0.5` differs | argmax label differs |
-| `direction` | P(toxic) of the female-referencing version minus P(toxic) of the male-referencing version | same, on `task.target_label`, with the axis declaring which group is "first" |
+| `jsd_*` | JSD over `[P(non-toxic), P(toxic)]` | JSD over the full distribution over levels |
+| `flip_*` | `P(toxic) ≥ 0.5` differs | most probable level differs (ties go to the more toxic level) |
+| `direction` | P(toxic) of the female-referencing version minus that of the male-referencing version | the same difference on the **severity score**, the expected level scaled to [0, 1], which equals P(toxic) for 2 levels |
 
-Added in the framework:
+Added in Phase 1:
 
 - **Standardised effect size** `mean(Δ) / sd(Δ)` per model, scale-free (see §6).
-- **Competence check**: if rows carry an optional gold `label`, each model's accuracy
-  and macro-F1 on the original texts are reported next to its bias numbers.
-- **Adapter diagnostics** aggregated per model: mean option mass, invalid answer rate,
-  share of truncated rows.
+- **Competence check**: if rows carry a gold `label`, each model's accuracy on the
+  original texts is reported next to its bias numbers (macro-F1 is planned).
+- **Run warnings**: excluded rows, unbalanced groups, low row count.
+
+Planned: **adapter diagnostics** aggregated per model (mean option mass, invalid
+answer rate, share of truncated rows).
 
 ## 4. Adapter details
 
 ### 4.1 `hf-classifier` (BERT family)
 
-This is the POC's `HFClassifierScorer`, generalised.
+This is the POC's `HFClassifierScorer`, generalised in Phase 1.
 
-- **Label mapping.** Model label names differ (`toxic`, `toxicity`, `LABEL_1`,
-  `offensive`). The config maps each task label to one or more model labels:
-  `label_map: {"toxic": ["toxic"], "non-toxic": ["neutral"]}`. For a softmax head,
-  probabilities of model labels mapped to the same task label are summed; unmapped
-  labels are an error unless `unmapped: ignore` is set, in which case the rest is
-  renormalised. The POC's `toxic_label` stays as a shorthand for the binary case.
+- **Label mapping** (built). Model label names differ (`toxic`, `toxicity`,
+  `LABEL_1`, `offensive`). A `label_map` lists, per level, the model labels whose
+  softmax probabilities are summed into it; the lowest level may be left out and then
+  receives every other label. Every model label must land in exactly one level and
+  every level must get at least one, or the model fails with a message listing both
+  sides. The POC's `toxic_label` stays as the 2-level shorthand. Rules in DATA.md §3.2.
 - **Multi-label heads** (`problem_type == "multi_label_classification"`, e.g.
-  toxic-bert's toxic / severe_toxic / insult / ... heads): the task's target label is
-  read from one named head with a sigmoid, as in the POC, giving `[1 − p, p]`. Other
-  heads are ignored and the choice is recorded.
-- **Reproducibility.** Optional `revision` (a commit hash on the Hub). The resolved
-  revision is always written to the results.
+  toxic-bert's toxic / severe_toxic / insult / ... heads): one named head is read with
+  a sigmoid, as in the POC, giving `[1 − p, p]`. Independent sigmoids do not form a
+  distribution over 3 or 4 levels, so such models can only join 2-level runs.
+- **Reproducibility** (built). Optional `revision` (a commit hash on the Hub); the
+  resolved revision is written to the results, with the label mapping used.
 - **Truncation.** Inputs longer than the model's max length are truncated (512 tokens
   for BERT). If a swapped word falls after the cut, the model sees identical inputs for
   the original and the swap. Planned: detect this per row and flag it `truncated`.
@@ -279,8 +294,13 @@ Answer:
 Mixing model types in one comparison is the point of the framework, but some numbers
 travel across types better than others.
 
-- **Same task, or no comparison.** All models in a run must answer over the same label
-  set. The run refuses to compare models whose adapters were given different labels.
+- **Same levels, or no comparison.** All models in a run are scored over the same task
+  levels; a scorer that returns a different number of probabilities is recorded as an
+  error (built). This matters for the 3 and 4-level tasks: binary classifiers, and
+  multi-label classifiers in particular, can only join 2-level runs. Planned for
+  Phase 2: an LLM asked for 3 or 4 levels can have its answer distribution collapsed
+  to 2 levels (summing the levels from `toxic_from` upwards) so it can be compared with
+  binary classifiers in a 2-level run.
 - **Δ is a within-model contrast, but JSD is scale-dependent.** Δ already subtracts
   each model's own wording sensitivity, which is what makes cross-model comparison
   meaningful at all. But JSD depends on how confident a model is: LLM option
@@ -288,52 +308,54 @@ travel across types better than others.
   the answer flips, and near 1 when it does. A classifier with softer probabilities can
   show a larger mean Δ with the same underlying behaviour. The framework therefore
   reports, next to the raw Δ comparison:
-  - the standardised effect size `mean(Δ) / sd(Δ)` per model,
+  - the standardised effect size `mean(Δ) / sd(Δ)` per model (built),
   - flip-based metrics (gender flip rate vs. control flip rate), which do not depend on
-    calibration.
+    calibration (built).
 - **Estimation noise.** Sampling-based distributions (§4.4) add Monte Carlo noise. It
   affects the targeted and control arms alike, so Δ stays roughly centred, but it
   inflates the variance of Δ and biases JSD upward. A model scored by sampling should
-  not be compared with one scored from logits without saying so; the results flag
-  any comparison where the two models used different estimation modes.
+  not be compared with one scored from logits without saying so; the results will flag
+  any comparison where the two models used different estimation modes (planned).
 - **Competence.** A model that always answers "non-toxic" has Δ = 0 and would look
   unbiased. When gold labels are available, accuracy on the originals is reported next
-  to the bias numbers so a "no detectable bias" result from an incompetent model is
-  visible as such.
-- **The results say all of this.** A `comparability` block per comparison lists the
-  two adapter types, estimation modes, and any of the warnings above, and the verdict
-  text mentions it when the types differ.
+  to the bias numbers (built) so a "no detectable bias" result from an incompetent
+  model is visible as such.
+- **The results say all of this.** A `comparability` block per comparison will list
+  the two adapter types, estimation modes, and any of the warnings above, and the
+  verdict text will mention it when the types differ (planned with Phase 2).
 
 ## 7. Configuration and entry points
 
-A run is described by one config file, so that it can be versioned and rerun. The
-Python API keeps working for notebooks.
+A run is described by one JSON or YAML config file, so that it can be versioned and
+rerun (built). The Python API keeps working for notebooks. A Phase 1 config:
 
 ```yaml
-# runs/toxicity_gender.yaml
-dataset: data/posts.jsonl
-axis: gender
-task: toxicity            # built-in; or an inline task block
+# configs/validation.yaml
+dataset: ../data/validation/tweet_eval_offensive_gender.jsonl
+task: toxicity            # built-in (toxicity, toxicity-3, toxicity-4) or a task block
 n_controls: 5
 seed: 0
-alpha: 0.05
+controls:
+  method: masked-lm
+  min_similarity: 0.85
 
 models:                   # the first model that scores successfully is the reference
-  - type: hf-classifier
-    name: unitary/toxic-bert
-    label_map: {toxic: [toxic]}          # multi-label head: read the "toxic" head
-
-  - type: hf-classifier
-    name: s-nlp/roberta_toxicity_classifier
+  - name: unitary/toxic-bert            # multi-label: reads the "toxic" sigmoid head
+    toxic_label: toxic
+  - name: s-nlp/roberta_toxicity_classifier
     label_map: {toxic: [toxic], non-toxic: [neutral]}
+```
 
-  - type: hf-causal-lm
+LLM entries will sit in the same list once their adapters exist (planned):
+
+```yaml
+  - type: hf-causal-lm                  # Phase 2
     name: Qwen/Qwen2.5-7B-Instruct
     dtype: bfloat16
     use_chat_template: true
     scoring: first-token
 
-  - type: api-llm
+  - type: api-llm                       # Phase 4
     provider: anthropic
     model: claude-opus-5-5
     estimation: sampling
@@ -344,70 +366,83 @@ models:                   # the first model that scores successfully is the refe
 ```python
 from biascompare import load_config, run
 
-results = run(load_config("runs/toxicity_gender.yaml"))
+results = run(load_config("configs/validation.yaml"))
 ```
 
-A thin command-line entry point (`biascompare run runs/toxicity_gender.yaml`) wraps the
-same call and writes the results JSON next to the config. The full field reference for
-every model type is in [`DATA.md` §3](./DATA.md#3-model-and-task-configuration).
+On the command line, `biascompare run CONFIG` writes the results JSON (to `output`,
+or `results/<config name>.json` next to the config) and prints the verdict and
+warnings; `biascompare preview CONFIG` builds the perturbations only. The field
+reference is in [`DATA.md` §3](./DATA.md#3-models-task-and-run-configuration).
 
-## 8. Results schema: v0.1 to v1.0
+## 8. Results schema
 
-The v0.1 schema (DESIGN §7) is extended, not replaced. Main changes:
+The v0.1 schema (DESIGN §7) is extended, never replaced: every v0.1 field keeps its
+meaning.
 
-- `run.task`: labels, target label, instruction, template hash.
-- `run.models[]`: `type`, resolved `revision` or API model id, estimation mode, the
-  adapter config with secrets removed.
-- `per_post[]` (renamed `per_row[]`): full distributions (`p_original`,
-  `p_targeted`, `p_controls`) keyed by label, with `p_target_*` kept for convenience,
-  plus a `diagnostics` object (option mass, invalid rate, truncated).
-- `summary`: adds `effect_size`, `accuracy` (when gold labels exist), aggregated
-  diagnostics.
-- `comparisons[]`: adds the `comparability` block from §6.
-- `schema_version` becomes `"1.0"`; a reader for v0.1 files is kept so old POC results
-  still load into the viz helpers.
+**Version 0.2 (Phase 1, built)** adds `run.task`, `run.controls`, model `type`,
+`revision` and label mapping in `run.models[]`, row `attributes`/`label`/`meta`,
+control `similarity`, full per-level distributions per row, `effect_size`,
+`n_eligible`, `accuracy`, `n_labeled`, and a top-level `warnings` list. The full list is
+in DATA.md §5.
 
-## 9. Proposed package layout
+**Version 1.0 (planned, with the LLM adapters)** adds:
+
+- `run.task`: answer options and the rendered template's hash.
+- `run.models[]`: API model id and date, estimation mode.
+- per-row `diagnostics` (option mass, invalid rate, truncated) and their per-model
+  aggregates.
+- `comparisons[]`: the `comparability` block from §6.
+
+## 9. Package layout
+
+Built in Phase 1 (new modules marked):
 
 ```
 src/biascompare/
-├── __init__.py            # run, load_config, compare_models (kept), save_results, ...
-├── config.py              # RunConfig, TaskSpec, per-type model specs; YAML/JSON loading
-├── data/
-│   ├── schema.py          # Row dataclass, validation, v0.1 legacy mapping
-│   └── loaders.py         # JSONL today; CSV and Hugging Face datasets later
-├── tasks/
-│   └── toxicity.py        # the built-in toxicity task
-├── perturb/               # as today, plus an axis registry and masked-LM controls
+├── __init__.py            # compare_models, run, load_config, TaskSpec, ControlsSpec, ...
+├── __main__.py, cli.py    # new: `biascompare run|preview CONFIG`
+├── config.py              # new: RunConfig, JSON/YAML loading and validation, run()
+├── tasks.py               # new: TaskSpec, built-in toxicity tasks (2 to 4 levels)
+├── axes.py                # new: axis registry (lexicon per axis)
+├── devices.py             # new: shared cuda/mps/cpu selection
+├── inputs.py              # ModelSpec (type, label_map, revision, token_env, settings), Post (v1), loader
+├── perturb/
+│   ├── gender.py          # lexicon swapper
+│   ├── controls.py        # synonym-list controls
+│   ├── mlm_controls.py    # new: masked-LM controls and their HF helper models
+│   └── factory.py         # new: ControlsSpec, build_control_generator
 ├── scoring/
-│   ├── base.py            # Scorer protocol, ScoredText, label mapping helpers
-│   ├── registry.py        # "type" -> adapter factory
-│   ├── hf_classifier.py   # today's classifier.py, generalised
-│   ├── hf_masked_lm.py
-│   ├── hf_causal_lm.py
-│   ├── api_llm.py
-│   ├── prompts.py         # template rendering and validation
-│   └── cache.py           # on-disk score cache
-├── metrics.py, stats.py, model_metrics.py, comparisons.py, verdicts.py
-├── results.py             # save/load, v0.1 reader
-├── viz.py
-└── cli.py
+│   ├── base.py            # Scorer protocol, level mapping helpers
+│   ├── registry.py        # new: "type" -> adapter factory
+│   └── classifier.py      # hf-classifier, generalised to task levels
+├── perturbation_plan.py, model_metrics.py, compare.py
+├── metrics.py, stats.py, comparisons.py, verdicts.py, rng.py, results.py, viz.py
+└── resources/             # lexicon, synonyms, protected words, stopwords
+configs/                   # new: example run configs
+scripts/                   # new: build_validation_set.py
 ```
+
+Planned: `scoring/hf_causal_lm.py`, `scoring/hf_masked_lm.py`, `scoring/api_llm.py`,
+`scoring/prompts.py` (template rendering and validation), `scoring/cache.py` (on-disk
+score cache), and CSV and Hugging Face dataset loaders.
 
 ## 10. Testing strategy
 
-- **Offline by default**, as today: fake scorers drive orchestration, metrics and
+- **Offline by default** (built): fake scorers drive orchestration, metrics and
   statistics tests with no downloads.
-- **Regression lock.** Before any refactor, the current POC output on
-  `data/posts.jsonl` with a fake scorer is saved as a golden file. Phase 1 must
-  reproduce it exactly, so generalising to K labels cannot silently change the numbers.
-- **Adapter integration tests** against tiny random-weight Hub models
-  (`hf-internal-testing/*`), behind a `pytest -m integration` marker so the default run
-  stays offline.
-- **API adapter tests** replay recorded responses from fixture files; no live calls in
-  CI.
-- **Property tests** for the prompt rules in §5: for every row, the rendered prompts of
-  all arms differ only inside the text slot.
+- **Regression lock** (built): the POC's output on the sample data with the fake
+  scorers is saved in `tests/golden/`. The current code must reproduce every value in
+  it exactly, from both the v1 and the original v0.1 copy of the data.
+- **Adapter integration tests** (built): tiny randomly initialised BERT and RoBERTa
+  models are built from configs and saved locally, then loaded through
+  `from_pretrained`, so the real `transformers` code paths (tokenisation, mask
+  handling, pooling, label mapping, an end-to-end run with masked-LM controls) are
+  tested with no network. Marked `integration`; deselect with
+  `pytest -m "not integration"`.
+- **API adapter tests** (planned) replay recorded responses from fixture files; no
+  live calls in CI.
+- **Property tests** for the prompt rules in §5 (planned): for every row, the rendered
+  prompts of all arms differ only inside the text slot.
 
 ## 11. Roadmap
 
@@ -415,8 +450,8 @@ Each phase ends with the test suite green and a short update to this document.
 
 | Phase | Scope | Done when |
 |-|-|-|
-| 0 | Fork, this plan, the data specification | Reviewed and agreed (this commit) |
-| 1 | **Core generalisation.** K-label distributions, `TaskSpec`, `label_map` for classifiers, v1 dataset schema with a v0.1 reader, config file loading, adapter registry. **Masked-LM controls** so real datasets get usable baselines | Golden-file regression passes; a 200-row public dataset runs with under 5% of rows flagged `no_controls` |
+| 0 | Fork, this plan, the data specification | Done |
+| 1 | **Core generalisation.** 2 to 4-level distributions, `TaskSpec`, `label_map` for classifiers, v1 dataset schema with a v0.1 reader, config file loading and CLI, adapter registry. **Masked-LM controls** so real datasets get usable baselines | Built. Golden-file regression passes. Still to verify on Colab: the 200-row TweetEval set (`scripts/build_validation_set.py`, `configs/validation.yaml`) runs with under 5% of rows flagged `no_controls`, and the `min_similarity` default holds up |
 | 2 | **`hf-causal-lm`.** Prompt rendering and validation, first-token and sequence scoring, option mass, left-padded batching, dtype and quantisation options | A BERT classifier and a 7B instruct model compared in one run (on Colab via 4-bit loading) |
 | 3 | **`hf-masked-lm`.** Templates and verbalizers | Prompted BERT runs in the same comparison |
 | 4 | **`api-llm`.** Logprobs and sampling modes, structured output, cache, rate limits, dry run with cost estimate | A hosted model joins the comparison; a rerun hits the cache for every call |
@@ -430,18 +465,19 @@ bias-mitigation method (model 0 = before, model 1 = after).
 
 ## 12. Open questions
 
-These need a decision before or during Phase 1.
+Decided:
+
+- **Task scope:** toxicity only, with 2 to 4 ordered levels (§3.1).
+- **Config format:** both JSON and YAML are accepted (`pyyaml` is a dependency).
+
+Still open:
 
 1. **Which LLMs come first?** Local open-weight models (Phase 2) or hosted APIs
    (Phase 4)? The order above assumes local first because logits make the cleanest
    comparison and need no API budget.
-2. **Task scope.** Toxicity only for v1, or general text classification (sentiment,
-   hate speech, hiring screens) from the start? The design supports both; the choice
-   decides how much effort goes into the built-in task library.
-3. **Config format.** YAML (friendlier, one extra dependency) or JSON (no dependency)?
-4. **Cross-type comparisons.** Should a comparison between a classifier and an LLM be a
+2. **Cross-type comparisons.** Should a comparison between a classifier and an LLM be a
    first-class verdict, or always reported with the comparability warning attached?
-5. **Data source.** Will real social media data be used? That decides how much of the
+3. **Data source.** Will real social media data be used? That decides how much of the
    privacy and licensing guidance in DATA.md §2.6 becomes tooling.
-6. **Repository visibility.** The POC is public so Colab can clone it without a token.
+4. **Repository visibility.** The POC is public so Colab can clone it without a token.
    If this repo stays private, the example notebook needs a token-based clone step.

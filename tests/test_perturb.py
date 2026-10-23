@@ -252,3 +252,9 @@ def test_from_resources_smoke(swapper: GenderSwapper):
     for perturbation in result.perturbations:
         changed_words = {c.original.lower() for c in perturbation.changes}
         assert not changed_words & swapper.vocabulary
+
+
+def test_group_counts_counts_each_groups_lexicon_words():
+    swapper = GenderSwapper.from_resource()
+    assert swapper.group_counts("He told his sister.") == {"male": 2, "female": 1}
+    assert swapper.group_counts("Nobody here.") == {"male": 0, "female": 0}

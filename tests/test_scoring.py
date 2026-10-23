@@ -250,3 +250,67 @@ def test_hf_classifier_scorer_unknown_toxic_label_raises_value_error(monkeypatch
     spec = ModelSpec(name="fake/model", toxic_label="offensive")
     with pytest.raises(ValueError, match="offensive"):
         HFClassifierScorer(spec, device="cpu")
+
+
+# ---------------------------------------------------------------------------
+# HFClassifierScorer with task levels and label_map
+# ---------------------------------------------------------------------------
+
+
+def _patch_loaders(monkeypatch, fake_model, calls=None):
+    def _tokenizer(*args, **kwargs):
+        if calls is not None:
+            calls.append(kwargs)
+        return _FakeTokenizer()
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", staticmethod(_tokenizer))
+    monkeypatch.setattr(
+        transformers.AutoModelForSequenceClassification, "from_pretrained", staticmethod(lambda *a, **k: fake_model)
+    )
+
+
+def test_hf_classifier_scorer_maps_three_labels_onto_three_levels(monkeypatch):
+    from biascompare.tasks import BUILTIN_TASKS
+
+    config = _FakeConfig(id2label={0: "normal", 1: "offensive", 2: "hate"}, problem_type=None)
+    logits_rows = [[1.0, 0.0, -1.0], [-2.0, 0.5, 2.0]]
+    _patch_loaders(monkeypatch, _FakeModel(config, logits_rows))
+
+    spec = ModelSpec(
+        name="fake/hatexplain",
+        label_map={"non-toxic": ["normal"], "borderline": ["offensive"], "toxic": ["hate"]},
+    )
+    scorer = HFClassifierScorer(spec, task=BUILTIN_TASKS["toxicity-3"], device="cpu")
+    for dist, row in zip(scorer.score(["x", "y"]), logits_rows):
+        assert dist == pytest.approx(tuple(_softmax(row)), abs=1e-6)
+    assert scorer.metadata["label_mapping"] == {"non-toxic": ["normal"], "borderline": ["offensive"], "toxic": ["hate"]}
+    assert scorer.metadata["head"] == "softmax"
+    scorer.close()
+
+
+def test_hf_classifier_scorer_passes_revision_and_token_env(monkeypatch):
+    monkeypatch.setenv("MY_HF_TOKEN", "from-env")
+    calls: list[dict] = []
+    config = _FakeConfig(id2label={0: "neutral", 1: "toxic"}, problem_type=None)
+    _patch_loaders(monkeypatch, _FakeModel(config, [[0.0, 0.0]]), calls)
+
+    spec = ModelSpec(name="fake/m", revision="abc123", token_env="MY_HF_TOKEN")
+    scorer = HFClassifierScorer(spec, device="cpu")
+    assert calls == [{"token": "from-env", "revision": "abc123"}]
+    assert scorer.metadata["revision"] == "abc123"
+    scorer.close()
+
+
+def test_hf_classifier_scorer_rejects_unknown_settings(monkeypatch):
+    spec = ModelSpec(name="fake/m", settings={"temperature": 0.5})
+    with pytest.raises(ValueError, match="temperature"):
+        HFClassifierScorer(spec, device="cpu")
+
+
+def test_hf_classifier_scorer_batch_size_setting(monkeypatch):
+    config = _FakeConfig(id2label={0: "neutral", 1: "toxic"}, problem_type=None)
+    _patch_loaders(monkeypatch, _FakeModel(config, [[0.0, 1.0]] * 5))
+    scorer = HFClassifierScorer(ModelSpec(name="fake/m", settings={"batch_size": 2}), device="cpu")
+    assert scorer._batch_size == 2
+    assert len(scorer.score(["a", "b", "c", "d", "e"])) == 5
+    scorer.close()

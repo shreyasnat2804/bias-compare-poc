@@ -1,0 +1,12 @@
+# The POC run: the two toxicity classifiers on the 10 sample posts, with the
+# hand-written synonym controls. `biascompare run configs/poc.yaml`
+dataset: ../data/posts.jsonl
+output: ../results/poc.json
+task: toxicity
+n_controls: 5
+seed: 0
+models:
+  - name: unitary/toxic-bert          # multi-label: reads the "toxic" sigmoid head
+    toxic_label: toxic
+  - name: s-nlp/roberta_toxicity_classifier
+    label_map: {toxic: [toxic], non-toxic: [neutral]}

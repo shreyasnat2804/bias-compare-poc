@@ -1,8 +1,7 @@
 """Validates data/posts.jsonl against the requirements in DESIGN.md §5.1/§5.2.
 
-Loads the JSONL directly with `json` (not via `biascompare.inputs`, which is
-owned by a different part of this build) and exercises the real perturb
-package against every post.
+Loads the JSONL directly with `json` (independently of `biascompare.inputs`)
+and exercises the real perturb package against every post.
 """
 from __future__ import annotations
 
@@ -34,8 +33,14 @@ EXPECTED_PLATFORM_COUNTS = {"twitter": 5, "reddit": 5}
 
 
 def _load_posts() -> list[dict]:
+    """Rows flattened to the v0.1 field names: the file is in the v1 format
+    (docs/DATA.md §2.3), with gender under attributes and the rest in meta."""
     lines = DATA_PATH.read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+    rows = [json.loads(line) for line in lines if line.strip()]
+    return [
+        {"id": row["id"], "text": row["text"], "gender": row["attributes"]["gender"], **row["meta"]}
+        for row in rows
+    ]
 
 
 def test_dataset_has_ten_posts():

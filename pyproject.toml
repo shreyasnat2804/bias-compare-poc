@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biascompare"
-version = "0.1.0"
+version = "0.2.0"
 description = "Comparative counterfactual bias testing for BERT-style classifiers and LLMs, against a prompt-sensitivity baseline (Yang et al., 2026)"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,7 +13,11 @@ dependencies = [
   "numpy>=1.26",
   "scipy>=1.11",
   "matplotlib>=3.8",
+  "pyyaml>=6.0",
 ]
+
+[project.scripts]
+biascompare = "biascompare.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ipykernel", "nbconvert", "nbformat"]
@@ -27,3 +31,6 @@ biascompare = ["resources/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "integration: runs real transformers models built locally from tiny random configs (needs torch and transformers, no network)",
+]

@@ -1,0 +1,20 @@
+# Phase 1 validation: the same two classifiers on 200 public tweets with
+# masked-LM controls. Build the data first:
+#   python scripts/build_validation_set.py
+#   biascompare preview configs/validation.yaml   # check the no_controls count
+#   biascompare run configs/validation.yaml
+dataset: ../data/validation/tweet_eval_offensive_gender.jsonl
+output: ../results/validation.json
+task: toxicity
+n_controls: 5
+seed: 0
+controls:
+  method: masked-lm
+  mlm_model: distilroberta-base
+  similarity_model: sentence-transformers/all-MiniLM-L6-v2
+  min_similarity: 0.85
+models:
+  - name: unitary/toxic-bert
+    toxic_label: toxic
+  - name: s-nlp/roberta_toxicity_classifier
+    label_map: {toxic: [toxic], non-toxic: [neutral]}

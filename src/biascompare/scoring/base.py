@@ -1,35 +1,62 @@
-"""Scorer protocol and shared probability-conversion helpers. See DESIGN.md §4.
+"""Scorer protocol and shared probability-conversion helpers. See DESIGN.md §4
+and docs/PLAN.md §3.2.
 
-This module has no heavy dependencies (no torch/transformers) so it — and
-everything that only imports it — can be imported without either installed.
+This module has no heavy dependencies (no torch/transformers) so it, and
+everything that only imports it, can be imported without either installed.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
 
 from biascompare.inputs import ModelSpec
-
-ProbPair = tuple[float, float]
+from biascompare.metrics import Distribution, ProbPair
+from biascompare.tasks import TaskSpec
 
 
 class Scorer(Protocol):
-    """A model that turns a batch of texts into `(P(non-toxic), P(toxic))` pairs."""
+    """A model that turns a batch of texts into one distribution over the
+    task's levels per text (least to most toxic).
+
+    Optionally, a scorer may expose `metadata: dict` (resolved revision,
+    label mapping, ...); `compare_models` copies it into `run.models[]`.
+    """
 
     name: str
     scorer_type: str
     uses_instruction: bool
 
-    def score(self, texts: Sequence[str]) -> list[ProbPair]: ...
+    def score(self, texts: Sequence[str]) -> list[Distribution]: ...
 
     def close(self) -> None: ...
 
 
-ScorerFactory = Callable[[ModelSpec, str | None, str], Scorer]
-"""(spec, instruction, device) -> Scorer. `hf_classifier_factory` is the default."""
+ScorerFactory = Callable[[ModelSpec, TaskSpec, str], Scorer]
+"""(spec, task, device) -> Scorer. `scoring.registry.default_scorer_factory`
+dispatches on `spec.type` and is the default."""
+
+
+@dataclass(frozen=True)
+class LevelMapping:
+    """How a classification head's outputs become a distribution over task levels.
+
+    - `multi_label=True`: a single sigmoid head (`head_index`) gives
+      P(top level); only valid for a 2-level task.
+    - `multi_label=False`: softmax over every logit, then the probabilities
+      of the model labels in `groups[i]` are summed into level `i`.
+
+    `description` maps each level to the model label names feeding it, for
+    the results JSON.
+    """
+
+    multi_label: bool
+    groups: tuple[tuple[int, ...], ...]
+    head_index: int | None
+    description: Mapping[str, list[str]]
 
 
 def resolve_label_index(id2label: Mapping[int | str, str], toxic_label: str) -> int:
@@ -94,3 +121,170 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
     shifted = logits - np.max(logits)
     exp_values = np.exp(shifted)
     return exp_values / np.sum(exp_values)
+
+
+def resolve_level_mapping(
+    id2label: Mapping[int | str, str],
+    task: TaskSpec,
+    multi_label: bool,
+    toxic_label: str = "toxic",
+    label_map: Mapping[str, Sequence[str]] | None = None,
+    model_name: str = "model",
+) -> LevelMapping:
+    """Decide how a classifier's labels feed the task's levels (docs/DATA.md §3).
+
+    Rules, all matched case-insensitively:
+
+    - **Multi-label (sigmoid) heads**: the task must have 2 levels. The head
+      is `label_map[<top level>]` (exactly one label) if given, else
+      `toxic_label`.
+    - **Softmax heads with `label_map`**: each level lists the model labels
+      whose probabilities are summed into it. The lowest level may be left
+      out, in which case it receives every label not mapped elsewhere. Every
+      model label must end up in exactly one level, and every level must
+      receive at least one.
+    - **Softmax heads without `label_map`**: on a 2-level task,
+      `toxic_label` feeds the top level and every other label the bottom
+      one (the POC rule). On a 3- or 4-level task, model labels must match
+      the level names exactly.
+
+    Raises ValueError naming the model labels and task levels on any mismatch.
+    """
+    labels = {int(key): str(name) for key, name in id2label.items()}
+    available = [labels[index] for index in sorted(labels)]
+
+    if multi_label:
+        return _multi_label_mapping(labels, available, task, toxic_label, label_map, model_name)
+    if label_map is None:
+        label_map = _default_label_map(available, task, toxic_label, model_name)
+    return _softmax_mapping(labels, available, task, label_map, model_name)
+
+
+def distribution_from_logits(logits: Sequence[float], mapping: LevelMapping) -> Distribution:
+    """Turn one row of raw logits into a distribution over task levels."""
+    logits_arr = np.asarray(logits, dtype=np.float64)
+    if logits_arr.ndim != 1:
+        raise ValueError(f"expected a 1-D sequence of logits, got shape {logits_arr.shape}")
+    if mapping.multi_label:
+        p_top = _sigmoid(float(logits_arr[mapping.head_index]))
+        return (1.0 - p_top, p_top)
+    probs = _softmax(logits_arr)
+    return tuple(float(probs[list(group)].sum()) for group in mapping.groups)
+
+
+def _index_of(labels: Mapping[int, str], name: str) -> int | None:
+    target = name.strip().lower()
+    for index, label in labels.items():
+        if label.strip().lower() == target:
+            return index
+    return None
+
+
+def _multi_label_mapping(
+    labels: Mapping[int, str],
+    available: list[str],
+    task: TaskSpec,
+    toxic_label: str,
+    label_map: Mapping[str, Sequence[str]] | None,
+    model_name: str,
+) -> LevelMapping:
+    top_level = task.levels[-1]
+    if task.n_levels != 2:
+        raise ValueError(
+            f"{model_name} is a multi-label (sigmoid) classifier, which gives one independent "
+            f"probability per head, so it can only be scored on a 2-level task. Task "
+            f"{task.name!r} has {task.n_levels} levels {list(task.levels)}."
+        )
+    head_name = toxic_label
+    if label_map is not None:
+        entry = {level.lower(): heads for level, heads in label_map.items()}
+        unknown = [level for level in label_map if level.lower() != top_level.lower()]
+        if unknown or len(entry.get(top_level.lower(), ())) != 1:
+            raise ValueError(
+                f"{model_name} is a multi-label classifier: label_map must name exactly one head "
+                f"for the top level, e.g. {{{top_level!r}: [{toxic_label!r}]}}; got {dict(label_map)}"
+            )
+        head_name = entry[top_level.lower()][0]
+    head_index = _index_of(labels, head_name)
+    if head_index is None:
+        raise ValueError(
+            f"toxic_label {head_name!r} not found among model labels {available} of {model_name}. "
+            "Check the ModelSpec.toxic_label (or label_map) value against the model's config.id2label."
+        )
+    return LevelMapping(
+        multi_label=True,
+        groups=(),
+        head_index=head_index,
+        description={task.levels[0]: [f"1 - sigmoid({labels[head_index]})"], top_level: [labels[head_index]]},
+    )
+
+
+def _default_label_map(
+    available: list[str], task: TaskSpec, toxic_label: str, model_name: str
+) -> Mapping[str, Sequence[str]]:
+    if task.n_levels == 2:
+        return {task.levels[1]: [toxic_label]}
+    by_name = {label.strip().lower(): label for label in available}
+    if set(by_name) == {level.lower() for level in task.levels}:
+        return {level: [by_name[level.lower()]] for level in task.levels}
+    raise ValueError(
+        f"{model_name} has labels {available}, which do not match the levels {list(task.levels)} of "
+        f"task {task.name!r}. Pass a label_map that assigns every model label to a level."
+    )
+
+
+def _softmax_mapping(
+    labels: Mapping[int, str],
+    available: list[str],
+    task: TaskSpec,
+    label_map: Mapping[str, Sequence[str]],
+    model_name: str,
+) -> LevelMapping:
+    groups: list[list[int]] = [[] for _ in task.levels]
+    owner: dict[int, str] = {}
+    for level, model_labels in label_map.items():
+        try:
+            level_index = task.level_index(level)
+        except ValueError:
+            raise ValueError(
+                f"label_map for {model_name} names level {level!r}, but task {task.name!r} has "
+                f"levels {list(task.levels)}"
+            ) from None
+        for model_label in model_labels:
+            index = _index_of(labels, model_label)
+            if index is None:
+                raise ValueError(
+                    f"toxic_label {model_label!r} not found among model labels {available} of "
+                    f"{model_name}. Check the ModelSpec.toxic_label (or label_map) value against "
+                    "the model's config.id2label."
+                )
+            if index in owner and owner[index] != task.levels[level_index]:
+                raise ValueError(
+                    f"label_map for {model_name} puts model label {labels[index]!r} under both "
+                    f"{owner[index]!r} and {task.levels[level_index]!r}"
+                )
+            owner[index] = task.levels[level_index]
+            if index not in groups[level_index]:
+                groups[level_index].append(index)
+
+    unmapped = [index for index in sorted(labels) if index not in owner]
+    if unmapped and not groups[0]:
+        groups[0] = unmapped
+        unmapped = []
+    if unmapped:
+        raise ValueError(
+            f"label_map for {model_name} leaves model label(s) {[labels[i] for i in unmapped]} "
+            f"unassigned; add them to one of the levels {list(task.levels)}"
+        )
+    empty = [task.levels[i] for i, group in enumerate(groups) if not group]
+    if empty:
+        raise ValueError(
+            f"label_map for {model_name} gives no model label to level(s) {empty}; every level of "
+            f"task {task.name!r} needs at least one (model labels: {available})"
+        )
+    return LevelMapping(
+        multi_label=False,
+        groups=tuple(tuple(sorted(group)) for group in groups),
+        head_index=None,
+        description={task.levels[i]: [labels[j] for j in sorted(group)] for i, group in enumerate(groups)},
+    )

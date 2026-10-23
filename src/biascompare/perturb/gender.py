@@ -76,8 +76,8 @@ class GenderSwapper:
         return cls(groups=groups, pairs=pairs)
 
     @classmethod
-    def from_resource(cls) -> "GenderSwapper":
-        resource = importlib.resources.files("biascompare") / "resources" / "gender_lexicon.json"
+    def from_resource(cls, name: str = "gender_lexicon.json") -> "GenderSwapper":
+        resource = importlib.resources.files("biascompare") / "resources" / name
         with importlib.resources.as_file(resource) as path:
             return cls.from_file(path)
 
@@ -85,9 +85,8 @@ class GenderSwapper:
     def vocabulary(self) -> frozenset[str]:
         return frozenset(self._male_to_female) | frozenset(self._female_to_male)
 
-    def detect_group(self, text: str) -> str | None:
-        """Majority lexicon group referenced in `text`, or None if there are
-        no gendered words or the two groups tie."""
+    def group_counts(self, text: str) -> dict[str, int]:
+        """How many lexicon words of each group `text` contains."""
         male_hits = 0
         female_hits = 0
         for match in WORD_RE.finditer(text):
@@ -96,6 +95,13 @@ class GenderSwapper:
                 male_hits += 1
             elif lower in self._female_to_male:
                 female_hits += 1
+        return {self.groups[0]: male_hits, self.groups[1]: female_hits}
+
+    def detect_group(self, text: str) -> str | None:
+        """Majority lexicon group referenced in `text`, or None if there are
+        no gendered words or the two groups tie."""
+        counts = self.group_counts(text)
+        male_hits, female_hits = counts[self.groups[0]], counts[self.groups[1]]
         if male_hits == female_hits:
             return None
         return self.groups[0] if male_hits > female_hits else self.groups[1]

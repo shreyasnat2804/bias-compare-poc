@@ -11,22 +11,35 @@ comparisons without recomputing anything.
 from __future__ import annotations
 
 import math
+import statistics
 from collections.abc import Sequence
 
-from biascompare.metrics import ProbPair, flipped, js_divergence
+from biascompare.metrics import Distribution, js_divergence
 from biascompare.perturbation_plan import PostPlan, TextLayout
 from biascompare.rng import DIRECTION_CI, derive_rng
 from biascompare.stats import bonferroni, bootstrap_ci, mean_or_nan, paired_ttest_greater, ttest_two_sided
+from biascompare.tasks import DEFAULT_TASK, TaskSpec
 from biascompare.verdicts import model_verdict
 
 _NAN = float("nan")
 
 
 def compute_per_post_metrics(
-    plan: PostPlan, layout: TextLayout, post_index: int, scores: Sequence[ProbPair]
+    plan: PostPlan,
+    layout: TextLayout,
+    post_index: int,
+    scores: Sequence[Distribution],
+    task: TaskSpec = DEFAULT_TASK,
+    groups: tuple[str, str] = ("male", "female"),
+    axis: str = "gender",
 ) -> dict:
     """Build one `per_post[]` entry (DESIGN §7) for `plan` from `scores`,
-    the full flattened score list for this model (see `TextLayout`)."""
+    the full flattened score list for this model (see `TextLayout`).
+
+    JSD uses the full distribution over the task's levels; flips compare
+    the most probable level; `direction` is measured on severity (equal to
+    P(toxic) for a 2-level task, see `biascompare.tasks`).
+    """
     p_original = scores[layout.original_index[post_index]]
     p_gender = scores[layout.gender_index[post_index]]
     p_controls = [scores[i] for i in layout.control_indices[post_index]]
@@ -36,29 +49,40 @@ def compute_per_post_metrics(
     mean_jsd_controls = mean_or_nan(jsd_controls)
     delta = jsd_gender - mean_jsd_controls if jsd_controls else _NAN
 
-    flip_gender = flipped(p_original, p_gender)
-    control_flips = [flipped(p_original, p_control) for p_control in p_controls]
+    level_original = task.predicted_level(p_original)
+    flip_gender = task.predicted_level(p_gender) != level_original
+    control_flips = [task.predicted_level(p_control) != level_original for p_control in p_controls]
     flip_controls_rate = mean_or_nan([float(f) for f in control_flips])
 
+    direction = _direction(
+        plan.post.group(axis), groups, task.severity(p_original), task.severity(p_gender)
+    )
     return {
         "post_id": plan.post.id,
-        "p_toxic_original": p_original[1],
-        "p_toxic_gender_swap": p_gender[1],
-        "p_toxic_controls": [p[1] for p in p_controls],
+        "p_toxic_original": task.p_toxic(p_original),
+        "p_toxic_gender_swap": task.p_toxic(p_gender),
+        "p_toxic_controls": [task.p_toxic(p) for p in p_controls],
+        "p_original": list(p_original),
+        "p_gender_swap": list(p_gender),
+        "p_controls": [list(p) for p in p_controls],
+        "predicted_original": task.levels[level_original],
         "jsd_gender": jsd_gender,
         "jsd_controls": jsd_controls,
         "delta": delta,
-        "direction": _direction(plan.post.gender, p_original[1], p_gender[1]),
+        "direction": direction,
         "flip_gender": bool(flip_gender),
         "flip_controls_rate": flip_controls_rate,
     }
 
 
-def _direction(gender: str, p_toxic_original: float, p_toxic_gender_swap: float) -> float:
-    """P_toxic(female-referencing) - P_toxic(male-referencing) (DESIGN §6)."""
-    if gender == "female":
-        return p_toxic_original - p_toxic_gender_swap
-    return p_toxic_gender_swap - p_toxic_original
+def _direction(
+    group: str, groups: tuple[str, str], severity_original: float, severity_swap: float
+) -> float:
+    """Severity of the second group's version minus the first group's
+    (for gender: female-referencing minus male-referencing, DESIGN §6)."""
+    if group == groups[1]:
+        return severity_original - severity_swap
+    return severity_swap - severity_original
 
 
 def compute_model_summary(
@@ -107,6 +131,7 @@ def compute_model_summary(
 
     flip_rate_gender = mean_or_nan([float(m["flip_gender"]) for m in eligible])
     flip_rate_controls = mean_or_nan([m["flip_controls_rate"] for m in eligible])
+    effect_size = _effect_size(finite_deltas)
 
     summary = {
         "sensitivity": sensitivity,
@@ -119,6 +144,30 @@ def compute_model_summary(
         "p_direction": p_direction,
         "flip_rate_gender": flip_rate_gender,
         "flip_rate_controls": flip_rate_controls,
+        "effect_size": effect_size,
+        "n_eligible": n,
         "verdict": model_verdict(p_delta_bonferroni, mean_direction, p_direction, n, alpha),
     }
     return summary, deltas, directions
+
+
+def _effect_size(deltas: Sequence[float]) -> float:
+    """Standardised mean Δ, `mean / sample sd` (docs/PLAN.md §6). Scale-free,
+    so it can be read across model types; nan if n < 2 or sd is 0."""
+    if len(deltas) < 2:
+        return _NAN
+    sd = statistics.stdev(deltas)
+    if sd == 0 or not math.isfinite(sd):
+        return _NAN
+    return float(statistics.fmean(deltas) / sd)
+
+
+def compute_accuracy(per_post: Sequence[dict], gold: dict[str, str]) -> tuple[float, int]:
+    """Share of rows with a gold label whose original text's most probable
+    level matches it (the competence check, docs/PLAN.md §6). Every labelled
+    row counts, eligible for the bias statistics or not. `(nan, 0)` if no
+    row has a label."""
+    hits = [m["predicted_original"] == gold[m["post_id"]] for m in per_post if m["post_id"] in gold]
+    if not hits:
+        return _NAN, 0
+    return float(sum(hits) / len(hits)), len(hits)

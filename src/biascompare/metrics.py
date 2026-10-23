@@ -1,7 +1,10 @@
 """Per-sample divergence and label metrics. See DESIGN.md §6.
 
-`ProbPair` is `(P(non-toxic), P(toxic))`, the shape every `Scorer` returns
-per text (see `biascompare.scoring.base`).
+A `Distribution` is one probability per task level, ordered from least to
+most toxic (see `biascompare.tasks`), the shape every `Scorer` returns per
+text. `ProbPair`, `(P(non-toxic), P(toxic))`, is the 2-level case and is
+kept as an alias. `predicted_label`/`flipped` with a threshold are the
+binary rules; `TaskSpec.predicted_level` is the general one.
 """
 
 from __future__ import annotations
@@ -9,7 +12,8 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
-ProbPair = tuple[float, float]
+Distribution = tuple[float, ...]
+ProbPair = Distribution
 
 _EPS = 1e-12
 
@@ -52,5 +56,18 @@ def predicted_label(p: ProbPair, threshold: float = 0.5) -> int:
 
 
 def flipped(p: ProbPair, q: ProbPair, threshold: float = 0.5) -> bool:
-    """True if the predicted label of `p` differs from that of `q`."""
+    """True if the predicted label of `p` differs from that of `q` (binary rule)."""
     return predicted_label(p, threshold) != predicted_label(q, threshold)
+
+
+def validate_distribution(dist: Sequence[float], n_levels: int) -> None:
+    """Raise ValueError unless `dist` has `n_levels` finite, non-negative
+    values summing to 1 (within 1e-6)."""
+    if len(dist) != n_levels:
+        raise ValueError(f"expected {n_levels} probabilities, got {len(dist)}: {list(dist)}")
+    values = [float(x) for x in dist]
+    if not all(math.isfinite(x) and x >= 0.0 for x in values):
+        raise ValueError(f"probabilities must be finite and non-negative, got {values}")
+    total = math.fsum(values)
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"probabilities must sum to 1, got {total} from {values}")

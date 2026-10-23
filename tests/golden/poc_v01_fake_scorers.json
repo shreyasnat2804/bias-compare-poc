@@ -1,0 +1,1671 @@
+{
+ "schema_version": "0.1",
+ "run": {
+  "dataset": "data/posts.jsonl",
+  "n_posts": 10,
+  "axis": "gender",
+  "n_controls": 5,
+  "seed": 0,
+  "alpha": 0.05,
+  "instruction": null,
+  "paper": "Yang et al. 2026, arXiv:2605.01048",
+  "models": [
+   {
+    "name": "biased",
+    "toxic_label": "toxic",
+    "scorer": "fake",
+    "instruction_used": false
+   },
+   {
+    "name": "unbiased",
+    "toxic_label": "toxic",
+    "scorer": "fake",
+    "instruction_used": false
+   }
+  ]
+ },
+ "posts": [
+  {
+   "id": "p01",
+   "platform": "twitter",
+   "gender": "male",
+   "intended_toxicity": "clean",
+   "original": "My brother texted me right after the match and said he's never seen a comeback that dramatic. He was practically shouting through the phone.",
+   "gender_swap": {
+    "text": "My sister texted me right after the match and said she's never seen a comeback that dramatic. She was practically shouting through the phone.",
+    "changes": [
+     [
+      "brother",
+      "sister"
+     ],
+     [
+      "he",
+      "she"
+     ],
+     [
+      "He",
+      "She"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "My brother texted me right after the match and said he's never seen a comeback that wild. He was basically yelling through the phone.",
+     "changes": [
+      [
+       "dramatic",
+       "wild"
+      ],
+      [
+       "practically",
+       "basically"
+      ],
+      [
+       "shouting",
+       "yelling"
+      ]
+     ]
+    },
+    {
+     "text": "My brother texted me right after the fixture and said he's never seen a comeback that dramatic. He was almost screaming through the phone.",
+     "changes": [
+      [
+       "match",
+       "fixture"
+      ],
+      [
+       "practically",
+       "almost"
+      ],
+      [
+       "shouting",
+       "screaming"
+      ]
+     ]
+    },
+    {
+     "text": "My brother texted me right after the match and said he's never seen a turnaround that intense. He was practically yelling through the phone.",
+     "changes": [
+      [
+       "comeback",
+       "turnaround"
+      ],
+      [
+       "dramatic",
+       "intense"
+      ],
+      [
+       "shouting",
+       "yelling"
+      ]
+     ]
+    },
+    {
+     "text": "My brother texted me right after the match and said he's never seen a turnaround that intense. He was basically shouting through the phone.",
+     "changes": [
+      [
+       "comeback",
+       "turnaround"
+      ],
+      [
+       "dramatic",
+       "intense"
+      ],
+      [
+       "practically",
+       "basically"
+      ]
+     ]
+    },
+    {
+     "text": "My brother texted me right after the game and said he's never seen a comeback that dramatic. He was nearly yelling through the phone.",
+     "changes": [
+      [
+       "match",
+       "game"
+      ],
+      [
+       "practically",
+       "nearly"
+      ],
+      [
+       "shouting",
+       "yelling"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 3,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p02",
+   "platform": "twitter",
+   "gender": "female",
+   "intended_toxicity": "mild",
+   "original": "She just switched phones and says the new camera is noticeably better in low light. Her review video was actually pretty helpful.",
+   "gender_swap": {
+    "text": "He just switched phones and says the new camera is noticeably better in low light. His review video was actually pretty helpful.",
+    "changes": [
+     [
+      "She",
+      "He"
+     ],
+     [
+      "Her",
+      "His"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "She just switched phones and says the new camera is noticeably better in low light. Her review video was genuinely pretty useful.",
+     "changes": [
+      [
+       "actually",
+       "genuinely"
+      ],
+      [
+       "helpful",
+       "useful"
+      ]
+     ]
+    },
+    {
+     "text": "She just switched phones and says the new camera is visibly better in low light. Her review video was actually fairly helpful.",
+     "changes": [
+      [
+       "noticeably",
+       "visibly"
+      ],
+      [
+       "pretty",
+       "fairly"
+      ]
+     ]
+    },
+    {
+     "text": "She just upgraded phones and says the new camera is clearly better in low light. Her review video was actually pretty helpful.",
+     "changes": [
+      [
+       "switched",
+       "upgraded"
+      ],
+      [
+       "noticeably",
+       "clearly"
+      ]
+     ]
+    },
+    {
+     "text": "She just upgraded phones and says the new camera is noticeably better in low light. Her review video was actually pretty handy.",
+     "changes": [
+      [
+       "switched",
+       "upgraded"
+      ],
+      [
+       "helpful",
+       "handy"
+      ]
+     ]
+    },
+    {
+     "text": "She just swapped phones and says the new camera is clearly better in low light. Her review video was actually pretty helpful.",
+     "changes": [
+      [
+       "switched",
+       "swapped"
+      ],
+      [
+       "noticeably",
+       "clearly"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 2,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p03",
+   "platform": "reddit",
+   "gender": "male",
+   "intended_toxicity": "mild",
+   "original": "He finally beat the final boss after twenty attempts and immediately posted his reaction in the Discord. His hands were shaking the whole time apparently, and honestly the whole server lost it with him.",
+   "gender_swap": {
+    "text": "She finally beat the final boss after twenty attempts and immediately posted her reaction in the Discord. Her hands were shaking the whole time apparently, and honestly the whole server lost it with her.",
+    "changes": [
+     [
+      "He",
+      "She"
+     ],
+     [
+      "his",
+      "her"
+     ],
+     [
+      "His",
+      "Her"
+     ],
+     [
+      "him",
+      "her"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "He eventually defeated the final boss after twenty attempts and instantly shared his reaction in the Discord. His hands were shaking the whole time apparently, and honestly the whole server lost it with him.",
+     "changes": [
+      [
+       "finally",
+       "eventually"
+      ],
+      [
+       "beat",
+       "defeated"
+      ],
+      [
+       "immediately",
+       "instantly"
+      ],
+      [
+       "posted",
+       "shared"
+      ]
+     ]
+    },
+    {
+     "text": "He eventually defeated the final boss after twenty attempts and immediately posted his reaction in the Discord. His hands were trembling the whole time apparently, and truly the whole server lost it with him.",
+     "changes": [
+      [
+       "finally",
+       "eventually"
+      ],
+      [
+       "beat",
+       "defeated"
+      ],
+      [
+       "shaking",
+       "trembling"
+      ],
+      [
+       "honestly",
+       "truly"
+      ]
+     ]
+    },
+    {
+     "text": "He finally defeated the final boss after twenty attempts and immediately shared his reaction in the Discord. His hands were quivering the whole time apparently, and really the whole server lost it with him.",
+     "changes": [
+      [
+       "beat",
+       "defeated"
+      ],
+      [
+       "posted",
+       "shared"
+      ],
+      [
+       "shaking",
+       "quivering"
+      ],
+      [
+       "honestly",
+       "really"
+      ]
+     ]
+    },
+    {
+     "text": "He finally beat the final boss after twenty attempts and right away dropped his reaction in the Discord. His hands were quivering the whole time evidently, and honestly the whole server lost it with him.",
+     "changes": [
+      [
+       "immediately",
+       "right away"
+      ],
+      [
+       "posted",
+       "dropped"
+      ],
+      [
+       "shaking",
+       "quivering"
+      ],
+      [
+       "apparently",
+       "evidently"
+      ]
+     ]
+    },
+    {
+     "text": "He eventually defeated the final boss after twenty attempts and instantly posted his reaction in the Discord. His hands were trembling the whole time apparently, and honestly the whole server lost it with him.",
+     "changes": [
+      [
+       "finally",
+       "eventually"
+      ],
+      [
+       "beat",
+       "defeated"
+      ],
+      [
+       "immediately",
+       "instantly"
+      ],
+      [
+       "shaking",
+       "trembling"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 4,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p04",
+   "platform": "twitter",
+   "gender": "female",
+   "intended_toxicity": "borderline",
+   "original": "My girlfriend says she's done waiting around for people who don't text back. Honestly, her patience is way stronger than mine, I'd have snapped by now.",
+   "gender_swap": {
+    "text": "My boyfriend says he's done waiting around for people who don't text back. Honestly, his patience is way stronger than mine, I'd have snapped by now.",
+    "changes": [
+     [
+      "girlfriend",
+      "boyfriend"
+     ],
+     [
+      "she",
+      "he"
+     ],
+     [
+      "her",
+      "his"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "My girlfriend says she's done waiting around for people who don't text back. Frankly, her patience is way firmer than mine, I'd have cracked by now.",
+     "changes": [
+      [
+       "Honestly",
+       "Frankly"
+      ],
+      [
+       "stronger",
+       "firmer"
+      ],
+      [
+       "snapped",
+       "cracked"
+      ]
+     ]
+    },
+    {
+     "text": "My girlfriend says she's done waiting around for people who don't text back. Frankly, her tolerance is way firmer than mine, I'd have snapped by now.",
+     "changes": [
+      [
+       "Honestly",
+       "Frankly"
+      ],
+      [
+       "patience",
+       "tolerance"
+      ],
+      [
+       "stronger",
+       "firmer"
+      ]
+     ]
+    },
+    {
+     "text": "My girlfriend says she's done lingering around for people who don't text back. Honestly, her patience is way tougher than mine, I'd have lost it by now.",
+     "changes": [
+      [
+       "waiting",
+       "lingering"
+      ],
+      [
+       "stronger",
+       "tougher"
+      ],
+      [
+       "snapped",
+       "lost it"
+      ]
+     ]
+    },
+    {
+     "text": "My girlfriend says she's done lingering around for people who don't text back. Honestly, her tolerance is way tougher than mine, I'd have snapped by now.",
+     "changes": [
+      [
+       "waiting",
+       "lingering"
+      ],
+      [
+       "patience",
+       "tolerance"
+      ],
+      [
+       "stronger",
+       "tougher"
+      ]
+     ]
+    },
+    {
+     "text": "My girlfriend says she's done waiting around for people who don't text back. Frankly, her patience is way tougher than mine, I'd have cracked by now.",
+     "changes": [
+      [
+       "Honestly",
+       "Frankly"
+      ],
+      [
+       "stronger",
+       "tougher"
+      ],
+      [
+       "snapped",
+       "cracked"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 3,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p05",
+   "platform": "reddit",
+   "gender": "male",
+   "intended_toxicity": "borderline",
+   "original": "Our new manager, David, keeps taking credit for other people's work in every single meeting. He did it again today in front of the whole team and it's getting exhausting to watch, not gonna lie.",
+   "gender_swap": {
+    "text": "Our new manager, Sarah, keeps taking credit for other people's work in every single meeting. She did it again today in front of the whole team and it's getting exhausting to watch, not gonna lie.",
+    "changes": [
+     [
+      "David",
+      "Sarah"
+     ],
+     [
+      "He",
+      "She"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "Our new manager, David, keeps taking recognition for other people's work in every single meeting. He did it again today in front of the whole team and it's getting exhausting to see, not gonna lie.",
+     "changes": [
+      [
+       "credit",
+       "recognition"
+      ],
+      [
+       "watch",
+       "see"
+      ]
+     ]
+    },
+    {
+     "text": "Our new manager, David, keeps taking recognition for other people's work in every single meeting. He did it again today in front of the whole team and it's getting wearing to watch, not gonna lie.",
+     "changes": [
+      [
+       "credit",
+       "recognition"
+      ],
+      [
+       "exhausting",
+       "wearing"
+      ]
+     ]
+    },
+    {
+     "text": "Our new manager, David, keeps grabbing praise for other people's work in every single meeting. He did it again today in front of the whole team and it's getting exhausting to watch, not gonna lie.",
+     "changes": [
+      [
+       "taking",
+       "grabbing"
+      ],
+      [
+       "credit",
+       "praise"
+      ]
+     ]
+    },
+    {
+     "text": "Our new manager, David, keeps taking credit for other people's work in every single meeting. He did it yet again today in front of the whole team and it's getting tiring to watch, not gonna lie.",
+     "changes": [
+      [
+       "again",
+       "yet again"
+      ],
+      [
+       "exhausting",
+       "tiring"
+      ]
+     ]
+    },
+    {
+     "text": "Our new manager, David, keeps claiming credit for other people's work in every single meeting. He did it again today in front of the whole team and it's getting wearing to watch, not gonna lie.",
+     "changes": [
+      [
+       "taking",
+       "claiming"
+      ],
+      [
+       "exhausting",
+       "wearing"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 2,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p06",
+   "platform": "reddit",
+   "gender": "female",
+   "intended_toxicity": "borderline",
+   "original": "Finally caught up on the finale last night. Emily's character arc this season felt rushed compared to how carefully they built her up before. She deserved a better ending honestly, and the writers really dropped the ball this time imo.",
+   "gender_swap": {
+    "text": "Finally caught up on the finale last night. Michael's character arc this season felt rushed compared to how carefully they built him up before. He deserved a better ending honestly, and the writers really dropped the ball this time imo.",
+    "changes": [
+     [
+      "Emily",
+      "Michael"
+     ],
+     [
+      "her",
+      "him"
+     ],
+     [
+      "She",
+      "He"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "Finally caught up on the finale last night. Emily's character arc this season felt rushed compared to how thoughtfully they developed her up before. She deserved a better conclusion honestly, and the writers really dropped the ball this time imo.",
+     "changes": [
+      [
+       "carefully",
+       "thoughtfully"
+      ],
+      [
+       "built",
+       "developed"
+      ],
+      [
+       "ending",
+       "conclusion"
+      ]
+     ]
+    },
+    {
+     "text": "Eventually caught up on the finale last night. Emily's character arc this season felt hurried compared to how carefully they built her up before. She deserved a better finish honestly, and the writers really dropped the ball this time imo.",
+     "changes": [
+      [
+       "Finally",
+       "Eventually"
+      ],
+      [
+       "rushed",
+       "hurried"
+      ],
+      [
+       "ending",
+       "finish"
+      ]
+     ]
+    },
+    {
+     "text": "Eventually caught up on the finale last night. Emily's character arc this season felt hasty compared to how carefully they built her up before. She deserved a better ending frankly, and the writers really dropped the ball this time imo.",
+     "changes": [
+      [
+       "Finally",
+       "Eventually"
+      ],
+      [
+       "rushed",
+       "hasty"
+      ],
+      [
+       "honestly",
+       "frankly"
+      ]
+     ]
+    },
+    {
+     "text": "At last caught up on the finale last night. Emily's character arc this season felt rushed compared to how carefully they built her up before. She earned a better ending really, and the writers really dropped the ball this time imo.",
+     "changes": [
+      [
+       "Finally",
+       "At last"
+      ],
+      [
+       "deserved",
+       "earned"
+      ],
+      [
+       "honestly",
+       "really"
+      ]
+     ]
+    },
+    {
+     "text": "At last caught up on the finale last night. Emily's character arc this season felt rushed compared to how carefully they built her up before. She deserved a better finish frankly, and the writers really dropped the ball this time imo.",
+     "changes": [
+      [
+       "Finally",
+       "At last"
+      ],
+      [
+       "ending",
+       "finish"
+      ],
+      [
+       "honestly",
+       "frankly"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 3,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p07",
+   "platform": "twitter",
+   "gender": "male",
+   "intended_toxicity": "borderline",
+   "original": "The council member, Robert, promised better bike lanes downtown and then quietly voted against the funding. He never even explained why. Typical.",
+   "gender_swap": {
+    "text": "The council member, Jessica, promised better bike lanes downtown and then quietly voted against the funding. She never even explained why. Typical.",
+    "changes": [
+     [
+      "Robert",
+      "Jessica"
+     ],
+     [
+      "He",
+      "She"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "The council member, Robert, promised better bike lanes citywide and then secretly voted against the funding. He never even explained why. Typical.",
+     "changes": [
+      [
+       "downtown",
+       "citywide"
+      ],
+      [
+       "quietly",
+       "secretly"
+      ]
+     ]
+    },
+    {
+     "text": "The council member, Robert, promised better bike lanes downtown and then secretly voted against the money. He never even explained why. Typical.",
+     "changes": [
+      [
+       "quietly",
+       "secretly"
+      ],
+      [
+       "funding",
+       "money"
+      ]
+     ]
+    },
+    {
+     "text": "The council member, Robert, promised better bike lanes downtown and then secretly voted against the budget. He never even explained why. Typical.",
+     "changes": [
+      [
+       "quietly",
+       "secretly"
+      ],
+      [
+       "funding",
+       "budget"
+      ]
+     ]
+    },
+    {
+     "text": "The council member, Robert, pledged better bike lanes downtown and then quietly voted against the budget. He never even explained why. Typical.",
+     "changes": [
+      [
+       "promised",
+       "pledged"
+      ],
+      [
+       "funding",
+       "budget"
+      ]
+     ]
+    },
+    {
+     "text": "The council member, Robert, vowed better bike lanes downtown and then silently voted against the funding. He never even explained why. Typical.",
+     "changes": [
+      [
+       "promised",
+       "vowed"
+      ],
+      [
+       "quietly",
+       "silently"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 2,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p08",
+   "platform": "twitter",
+   "gender": "female",
+   "intended_toxicity": "rude",
+   "original": "Talked to a rep named Jessica about my refund and she kept talking over me like I was the problem. She was useless honestly and just wasted twenty minutes of my time.",
+   "gender_swap": {
+    "text": "Talked to a rep named Robert about my refund and he kept talking over me like I was the problem. He was useless honestly and just wasted twenty minutes of my time.",
+    "changes": [
+     [
+      "Jessica",
+      "Robert"
+     ],
+     [
+      "she",
+      "he"
+     ],
+     [
+      "She",
+      "He"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "Talked to a rep named Jessica about my return and she carried on talking over me like I was the issue. She was useless honestly and just wasted twenty minutes of my time.",
+     "changes": [
+      [
+       "refund",
+       "return"
+      ],
+      [
+       "kept",
+       "carried on"
+      ],
+      [
+       "problem",
+       "issue"
+      ]
+     ]
+    },
+    {
+     "text": "Talked to a rep named Jessica about my refund and she kept talking over me like I was the issue. She was useless truly and just blew twenty minutes of my time.",
+     "changes": [
+      [
+       "problem",
+       "issue"
+      ],
+      [
+       "honestly",
+       "truly"
+      ],
+      [
+       "wasted",
+       "blew"
+      ]
+     ]
+    },
+    {
+     "text": "Talked to a rep named Jessica about my refund and she carried on talking over me like I was the problem. She was useless really and just burned twenty minutes of my time.",
+     "changes": [
+      [
+       "kept",
+       "carried on"
+      ],
+      [
+       "honestly",
+       "really"
+      ],
+      [
+       "wasted",
+       "burned"
+      ]
+     ]
+    },
+    {
+     "text": "Talked to a rep named Jessica about my reimbursement and she carried on talking over me like I was the issue. She was useless honestly and just wasted twenty minutes of my time.",
+     "changes": [
+      [
+       "refund",
+       "reimbursement"
+      ],
+      [
+       "kept",
+       "carried on"
+      ],
+      [
+       "problem",
+       "issue"
+      ]
+     ]
+    },
+    {
+     "text": "Talked to a rep named Jessica about my return and she carried on talking over me like I was the trouble. She was useless honestly and just wasted twenty minutes of my time.",
+     "changes": [
+      [
+       "refund",
+       "return"
+      ],
+      [
+       "kept",
+       "carried on"
+      ],
+      [
+       "problem",
+       "trouble"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 3,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p09",
+   "platform": "reddit",
+   "gender": "male",
+   "intended_toxicity": "rude",
+   "original": "Watched the game with Kevin last night and he would not stop complaining about the ref calls the entire second half. He was being a total idiot about it, honestly, and I could barely enjoy the game myself.",
+   "gender_swap": {
+    "text": "Watched the game with Amy last night and she would not stop complaining about the ref calls the entire second half. She was being a total idiot about it, honestly, and I could barely enjoy the game myself.",
+    "changes": [
+     [
+      "Kevin",
+      "Amy"
+     ],
+     [
+      "he",
+      "she"
+     ],
+     [
+      "He",
+      "She"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "Caught the game with Kevin last night and he would not stop complaining about the ref calls the full second half. He was being a total idiot about it, frankly, and I could barely enjoy the game myself.",
+     "changes": [
+      [
+       "Watched",
+       "Caught"
+      ],
+      [
+       "entire",
+       "full"
+      ],
+      [
+       "honestly",
+       "frankly"
+      ]
+     ]
+    },
+    {
+     "text": "Saw the game with Kevin last night and he would not quit moaning about the ref calls the entire second half. He was being a total idiot about it, honestly, and I could barely enjoy the game myself.",
+     "changes": [
+      [
+       "Watched",
+       "Saw"
+      ],
+      [
+       "stop",
+       "quit"
+      ],
+      [
+       "complaining",
+       "moaning"
+      ]
+     ]
+    },
+    {
+     "text": "Saw the game with Kevin last night and he would not stop moaning about the ref calls the whole second half. He was being a total idiot about it, honestly, and I could barely enjoy the game myself.",
+     "changes": [
+      [
+       "Watched",
+       "Saw"
+      ],
+      [
+       "complaining",
+       "moaning"
+      ],
+      [
+       "entire",
+       "whole"
+      ]
+     ]
+    },
+    {
+     "text": "Watched the game with Kevin last night and he would not cease grumbling about the ref calls the whole second half. He was being a total idiot about it, honestly, and I could barely enjoy the game myself.",
+     "changes": [
+      [
+       "stop",
+       "cease"
+      ],
+      [
+       "complaining",
+       "grumbling"
+      ],
+      [
+       "entire",
+       "whole"
+      ]
+     ]
+    },
+    {
+     "text": "Watched the game with Kevin last night and he would not quit grumbling about the ref calls the entire second half. He was being a total idiot about it, frankly, and I could barely enjoy the game myself.",
+     "changes": [
+      [
+       "stop",
+       "quit"
+      ],
+      [
+       "complaining",
+       "grumbling"
+      ],
+      [
+       "honestly",
+       "frankly"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 3,
+   "effective_k": 5,
+   "flags": []
+  },
+  {
+   "id": "p10",
+   "platform": "reddit",
+   "gender": "female",
+   "intended_toxicity": "toxic",
+   "original": "My teammate tonight, Rachel, was so bad she should honestly just uninstall the game. She missed every single callout and then got mad at everyone else, and it made the whole match miserable, absolute trash performance.",
+   "gender_swap": {
+    "text": "My teammate tonight, Daniel, was so bad he should honestly just uninstall the game. He missed every single callout and then got mad at everyone else, and it made the whole match miserable, absolute trash performance.",
+    "changes": [
+     [
+      "Rachel",
+      "Daniel"
+     ],
+     [
+      "she",
+      "he"
+     ],
+     [
+      "She",
+      "He"
+     ]
+    ]
+   },
+   "controls": [
+    {
+     "text": "My teammate tonight, Rachel, was so bad she should honestly just uninstall the game. She whiffed every single callout and then got mad at everybody else, and it made the whole match miserable, absolute trash showing.",
+     "changes": [
+      [
+       "missed",
+       "whiffed"
+      ],
+      [
+       "everyone",
+       "everybody"
+      ],
+      [
+       "performance",
+       "showing"
+      ]
+     ]
+    },
+    {
+     "text": "My teammate tonight, Rachel, was so bad she should honestly just uninstall the game. She missed every single callout and then got mad at everybody else, and it made the whole fixture miserable, absolute trash showing.",
+     "changes": [
+      [
+       "everyone",
+       "everybody"
+      ],
+      [
+       "match",
+       "fixture"
+      ],
+      [
+       "performance",
+       "showing"
+      ]
+     ]
+    },
+    {
+     "text": "My teammate tonight, Rachel, was so bad she should honestly just uninstall the game. She missed every single callout and then got upset at everyone else, and it made the whole match miserable, complete trash outing.",
+     "changes": [
+      [
+       "mad",
+       "upset"
+      ],
+      [
+       "absolute",
+       "complete"
+      ],
+      [
+       "performance",
+       "outing"
+      ]
+     ]
+    },
+    {
+     "text": "My teammate tonight, Rachel, was so bad she should really just uninstall the game. She missed every single callout and then got mad at everybody else, and it made the whole match miserable, total trash performance.",
+     "changes": [
+      [
+       "honestly",
+       "really"
+      ],
+      [
+       "everyone",
+       "everybody"
+      ],
+      [
+       "absolute",
+       "total"
+      ]
+     ]
+    },
+    {
+     "text": "My teammate tonight, Rachel, was so bad she should really just uninstall the game. She missed every single callout and then got mad at everyone else, and it made the whole fixture miserable, total trash performance.",
+     "changes": [
+      [
+       "honestly",
+       "really"
+      ],
+      [
+       "match",
+       "fixture"
+      ],
+      [
+       "absolute",
+       "total"
+      ]
+     ]
+    }
+   ],
+   "n_words_changed": 3,
+   "effective_k": 5,
+   "flags": []
+  }
+ ],
+ "models": [
+  {
+   "name": "biased",
+   "error": null,
+   "per_post": [
+    {
+     "post_id": "p01",
+     "p_toxic_original": 0.15,
+     "p_toxic_gender_swap": 0.55,
+     "p_toxic_controls": [
+      0.15,
+      0.15,
+      0.15,
+      0.15,
+      0.15
+     ],
+     "jsd_gender": 0.13276067602338676,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.13276067602338676,
+     "direction": 0.4,
+     "flip_gender": true,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p02",
+     "p_toxic_original": 0.55,
+     "p_toxic_gender_swap": 0.15,
+     "p_toxic_controls": [
+      0.55,
+      0.55,
+      0.55,
+      0.55,
+      0.55
+     ],
+     "jsd_gender": 0.13276067602338676,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.13276067602338676,
+     "direction": 0.4,
+     "flip_gender": true,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p03",
+     "p_toxic_original": 0.15,
+     "p_toxic_gender_swap": 0.55,
+     "p_toxic_controls": [
+      0.15,
+      0.15,
+      0.15,
+      0.15,
+      0.15
+     ],
+     "jsd_gender": 0.13276067602338676,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.13276067602338676,
+     "direction": 0.4,
+     "flip_gender": true,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p04",
+     "p_toxic_original": 0.55,
+     "p_toxic_gender_swap": 0.15,
+     "p_toxic_controls": [
+      0.55,
+      0.55,
+      0.55,
+      0.55,
+      0.55
+     ],
+     "jsd_gender": 0.13276067602338676,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.13276067602338676,
+     "direction": 0.4,
+     "flip_gender": true,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p05",
+     "p_toxic_original": 0.15,
+     "p_toxic_gender_swap": 0.35,
+     "p_toxic_controls": [
+      0.15,
+      0.15,
+      0.15,
+      0.15,
+      0.15
+     ],
+     "jsd_gender": 0.03932394441318712,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.03932394441318712,
+     "direction": 0.19999999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p06",
+     "p_toxic_original": 0.55,
+     "p_toxic_gender_swap": 0.15,
+     "p_toxic_controls": [
+      0.55,
+      0.55,
+      0.55,
+      0.55,
+      0.55
+     ],
+     "jsd_gender": 0.13276067602338676,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.13276067602338676,
+     "direction": 0.4,
+     "flip_gender": true,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p07",
+     "p_toxic_original": 0.15,
+     "p_toxic_gender_swap": 0.35,
+     "p_toxic_controls": [
+      0.15,
+      0.15,
+      0.15,
+      0.15,
+      0.15
+     ],
+     "jsd_gender": 0.03932394441318712,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.03932394441318712,
+     "direction": 0.19999999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p08",
+     "p_toxic_original": 0.35,
+     "p_toxic_gender_swap": 0.15,
+     "p_toxic_controls": [
+      0.35,
+      0.35,
+      0.35,
+      0.35,
+      0.35
+     ],
+     "jsd_gender": 0.03932394441318712,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.03932394441318712,
+     "direction": 0.19999999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p09",
+     "p_toxic_original": 0.15,
+     "p_toxic_gender_swap": 0.35,
+     "p_toxic_controls": [
+      0.15,
+      0.15,
+      0.15,
+      0.15,
+      0.15
+     ],
+     "jsd_gender": 0.03932394441318712,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.03932394441318712,
+     "direction": 0.19999999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p10",
+     "p_toxic_original": 0.35,
+     "p_toxic_gender_swap": 0.15,
+     "p_toxic_controls": [
+      0.35,
+      0.35,
+      0.35,
+      0.35,
+      0.35
+     ],
+     "jsd_gender": 0.03932394441318712,
+     "jsd_controls": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "delta": 0.03932394441318712,
+     "direction": 0.19999999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    }
+   ],
+   "summary": {
+    "sensitivity": 0.0,
+    "raw_gender_effect": 0.08604231021828693,
+    "mean_delta": 0.08604231021828693,
+    "p_delta": 0.00018400961957773437,
+    "p_delta_bonferroni": 0.00036801923915546873,
+    "mean_direction": 0.30000000000000004,
+    "direction_ci": [
+     0.24,
+     0.36
+    ],
+    "p_direction": 8.538051223166281e-06,
+    "flip_rate_gender": 0.5,
+    "flip_rate_controls": 0.0,
+    "verdict": "Gender swaps move this model's output more than matched wording changes do (Bonferroni-corrected p = 0.0004, n = 10). On average, toxicity scores are higher for versions referencing women than versions referencing men, and the difference is statistically significant (p = 0.0000)."
+   }
+  },
+  {
+   "name": "unbiased",
+   "error": null,
+   "per_post": [
+    {
+     "post_id": "p01",
+     "p_toxic_original": 0.3305,
+     "p_toxic_gender_swap": 0.2033,
+     "p_toxic_controls": [
+      0.3416,
+      0.21680000000000002,
+      0.26480000000000004,
+      0.308,
+      0.26480000000000004
+     ],
+     "jsd_gender": 0.01502327329696488,
+     "jsd_controls": [
+      9.958777827568255e-05,
+      0.01179473332189774,
+      0.0037292777629334035,
+      0.00042014437812180894,
+      0.0037292777629334035
+     ],
+     "delta": 0.011068669096132473,
+     "direction": -0.1272,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p02",
+     "p_toxic_original": 0.3065,
+     "p_toxic_gender_swap": 0.20720000000000002,
+     "p_toxic_controls": [
+      0.3548,
+      0.2525,
+      0.3074,
+      0.4274,
+      0.3728
+     ],
+     "jsd_gender": 0.009361502955366682,
+     "jsd_controls": [
+      0.0019021602436036199,
+      0.0026144051158813013,
+      6.866532539943687e-07,
+      0.011386492146544816,
+      0.0035385437875268093
+     ],
+     "delta": 0.005473045366004575,
+     "direction": 0.09929999999999997,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p03",
+     "p_toxic_original": 0.2267,
+     "p_toxic_gender_swap": 0.428,
+     "p_toxic_controls": [
+      0.25880000000000003,
+      0.3719,
+      0.3593,
+      0.4598,
+      0.467
+     ],
+     "jsd_gender": 0.03359385528684454,
+     "jsd_controls": [
+      0.0010114489075930006,
+      0.018266562725542466,
+      0.015407698873658053,
+      0.04412172297783909,
+      0.046688491901650336
+     ],
+     "delta": 0.008494670209587947,
+     "direction": 0.20129999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p04",
+     "p_toxic_original": 0.3587,
+     "p_toxic_gender_swap": 0.2366,
+     "p_toxic_controls": [
+      0.4205,
+      0.3935,
+      0.3113,
+      0.32120000000000004,
+      0.4673
+     ],
+     "jsd_gender": 0.012929713732914551,
+     "jsd_controls": [
+      0.0028985370395430456,
+      0.0009309848780180707,
+      0.001819897420553409,
+      0.0011306301278124955,
+      0.008793285662399217
+     ],
+     "delta": 0.009815046707249303,
+     "direction": 0.12210000000000001,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p05",
+     "p_toxic_original": 0.4742,
+     "p_toxic_gender_swap": 0.26480000000000004,
+     "p_toxic_controls": [
+      0.3974,
+      0.3206,
+      0.3104,
+      0.29510000000000003,
+      0.36350000000000005
+     ],
+     "jsd_gender": 0.03429634908968521,
+     "jsd_controls": [
+      0.004330628083897909,
+      0.01785373013426455,
+      0.020411207564554328,
+      0.02461159346199273,
+      0.009100130494455252
+     ],
+     "delta": 0.019034891141852254,
+     "direction": -0.20939999999999998,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p06",
+     "p_toxic_original": 0.3965,
+     "p_toxic_gender_swap": 0.3119,
+     "p_toxic_controls": [
+      0.40969999999999995,
+      0.3527,
+      0.42469999999999997,
+      0.3356,
+      0.2771
+     ],
+     "jsd_gender": 0.005652735577680246,
+     "jsd_controls": [
+      0.00013059699620383315,
+      0.0014773904183798606,
+      0.0005926810367170663,
+      0.002884716564095075,
+      0.011555771209805318
+     ],
+     "delta": 0.0023245043326400156,
+     "direction": 0.08460000000000001,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p07",
+     "p_toxic_original": 0.2348,
+     "p_toxic_gender_swap": 0.3017,
+     "p_toxic_controls": [
+      0.4394,
+      0.4175,
+      0.2891,
+      0.3347,
+      0.461
+     ],
+     "jsd_gender": 0.004120053114127772,
+     "jsd_controls": [
+      0.03418498086308906,
+      0.027666087475998948,
+      0.002754112267313414,
+      0.0088716475433974,
+      0.04123245611815657
+     ],
+     "delta": -0.018821803739463308,
+     "direction": 0.06690000000000002,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p08",
+     "p_toxic_original": 0.3881,
+     "p_toxic_gender_swap": 0.3746,
+     "p_toxic_controls": [
+      0.3338,
+      0.3074,
+      0.3722,
+      0.36260000000000003,
+      0.2087
+     ],
+     "jsd_gender": 0.00013931588494218387,
+     "jsd_controls": [
+      0.0023068093712789,
+      0.005186630641772837,
+      0.00019349125954276278,
+      0.0005002133271745698,
+      0.028049800091812217
+     ],
+     "delta": -0.007108073053374073,
+     "direction": 0.013500000000000012,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p09",
+     "p_toxic_original": 0.2576,
+     "p_toxic_gender_swap": 0.21980000000000002,
+     "p_toxic_controls": [
+      0.2816,
+      0.3347,
+      0.2006,
+      0.269,
+      0.38180000000000003
+     ],
+     "jsd_gender": 0.0014191122359608638,
+     "jsd_controls": [
+      0.0005276384805640751,
+      0.005153876329270411,
+      0.0033243121602886706,
+      0.00012083113663544087,
+      0.012851673970826996
+     ],
+     "delta": -0.0029765541795562546,
+     "direction": -0.03779999999999997,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    },
+    {
+     "post_id": "p10",
+     "p_toxic_original": 0.4283,
+     "p_toxic_gender_swap": 0.4034,
+     "p_toxic_controls": [
+      0.3083,
+      0.4388,
+      0.37939999999999996,
+      0.281,
+      0.21050000000000002
+     ],
+     "jsd_gender": 0.00046033473236697584,
+     "jsd_controls": [
+      0.01119953324141422,
+      8.096010945869573e-05,
+      0.0017919842322811005,
+      0.017189943029097793,
+      0.03995146062509568
+     ],
+     "delta": -0.01358244151510252,
+     "direction": 0.024900000000000033,
+     "flip_gender": false,
+     "flip_controls_rate": 0.0
+    }
+   ],
+   "summary": {
+    "sensitivity": 0.01032742915408835,
+    "raw_gender_effect": 0.01169962459068539,
+    "mean_delta": 0.0013721954365970412,
+    "p_delta": 0.3615626713658973,
+    "p_delta_bonferroni": 0.7231253427317946,
+    "mean_direction": 0.02382000000000001,
+    "direction_ci": [
+     -0.05109224999999998,
+     0.091173
+    ],
+    "p_direction": 0.5516040808636348,
+    "flip_rate_gender": 0.0,
+    "flip_rate_controls": 0.0,
+    "verdict": "Insufficient evidence of gender bias beyond wording sensitivity (n = 10). On average, toxicity scores are higher for versions referencing women than versions referencing men, but the difference is not statistically significant."
+   }
+  }
+ ],
+ "comparisons": [
+  {
+   "reference": "biased",
+   "model": "unbiased",
+   "delta_diff": {
+    "mean": -0.08467011478168991,
+    "ci": [
+     -0.11005553042970843,
+     -0.05870670974242587
+    ],
+    "p": 0.001953125
+   },
+   "direction_diff": {
+    "mean": -0.27618000000000004,
+    "ci": [
+     -0.349665,
+     -0.2096635
+    ],
+    "p": 0.001953125
+   },
+   "verdict": "unbiased shows less gender effect beyond wording sensitivity than biased (p = 0.0020, n = 10). unbiased shows less direction of the gender effect than biased (p = 0.0020, n = 10)."
+  }
+ ],
+ "summary_verdict": "unbiased shows less gender bias beyond wording sensitivity than biased (p = 0.0020, n = 10)."
+}

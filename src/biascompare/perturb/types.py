@@ -17,12 +17,15 @@ class Perturbation:
     """A perturbed version of a post's text.
 
     `kind` is "gender" for the targeted swap or "control" for a baseline
-    synonym swap.
+    word swap. `similarity` is the sentence-embedding cosine similarity to
+    the original text, recorded by generators that filter on it (masked-LM
+    controls); it is `None` otherwise.
     """
 
     kind: str
     text: str
     changes: tuple[Change, ...]
+    similarity: float | None = None
 
     @property
     def n_changed(self) -> int:

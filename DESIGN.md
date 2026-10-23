@@ -1,8 +1,10 @@
 # biascompare — Design (POC)
 
 > **POC design record.** This is the design document of the POC this framework was forked
-> from. It still describes the code in `src/` accurately. The framework plan is in
-> [`docs/PLAN.md`](./docs/PLAN.md) and the data specification in [`docs/DATA.md`](./docs/DATA.md).
+> from. The method, the statistics and the v0.1 results fields it describes are still how
+> the code works; what the framework has added since (task levels, the v1 data format,
+> masked-LM controls, config files) is described in [`docs/PLAN.md`](./docs/PLAN.md) and
+> [`docs/DATA.md`](./docs/DATA.md).
 
 A proof of concept for a **comparative model-bias testing framework**. Given a set of
 Hugging Face models, a dataset and an optional instruction prompt, it measures each
