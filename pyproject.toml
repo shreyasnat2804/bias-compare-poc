@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "biascompare"
 version = "0.1.0"
-description = "POC: compare gender bias of HF text classifiers against a prompt-sensitivity baseline (Yang et al., 2026)"
+description = "Comparative counterfactual bias testing for BERT-style classifiers and LLMs, against a prompt-sensitivity baseline (Yang et al., 2026)"
 requires-python = ">=3.10"
 dependencies = [
   "torch>=2.2",
