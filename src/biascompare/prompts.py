@@ -2,6 +2,12 @@
 template that places the post among them. See docs/PLAN.md §5 and
 docs/DATA.md §3.4.
 
+Prompts and few-shot examples are **inputs from the data side**: they are
+read from a prompts file (`biascompare.prompt_files.load_prompts`), and the
+examples are data rows like the evaluated posts, carrying their bias
+signatures (the groups they reference and their tagged swaps), which the
+example template can show. The framework only renders and checks them.
+
 The study's model variants differ by prompt (M1 and M3 add few-shot
 examples to M0 and M2), so a prompt belongs to a model entry, not to the
 run. Rendering is a pure function of `(prompt, task, text)`: the original
@@ -15,8 +21,9 @@ the user message, followed by the answer options.
 
 from __future__ import annotations
 
+import re
 import string
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
@@ -27,21 +34,57 @@ DEFAULT_EXAMPLE_TEMPLATE = "Post: {text}\nAnswer: {answer}\n\n"
 DEFAULT_INSTRUCTION = "Is the following social media post toxic?"
 
 _TEMPLATE_FIELDS = frozenset({"instruction", "examples", "text"})
-_EXAMPLE_FIELDS = frozenset({"text", "answer"})
+_EXAMPLE_FIELDS = frozenset({"text", "answer", "label", "id", "attributes", "meta", "swap", "counterfactual"})
+_EMPTY: Mapping = MappingProxyType({})
 
 
 @dataclass(frozen=True)
 class Example:
-    """One labelled few-shot example. `label` must be a level of the run's task."""
+    """One labelled few-shot example: a data row from the data side.
+
+    `label` must be a level of the run's task. The bias signature travels
+    with it: `attributes` (axis -> group it references), `swaps` (axis ->
+    the example's counterfactual text, built from its tagged swaps when the
+    examples file is loaded) and free-form `meta`. An `example_template`
+    can show any of them: `{attributes[gender]}`, `{swap[gender]}`,
+    `{counterfactual}` (the swap for the example's only, or first, tagged
+    axis), `{meta[...]}`, `{id}`, `{label}`.
+    """
 
     text: str
     label: str
+    id: str | None = None
+    attributes: Mapping[str, str] = _EMPTY
+    swaps: Mapping[str, str] = _EMPTY
+    meta: Mapping[str, object] = _EMPTY
 
     def __post_init__(self) -> None:
         for name in ("text", "label"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Few-shot example {name} must be a non-empty string, got {value!r}")
+        for name in ("attributes", "swaps", "meta"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping):
+                raise ValueError(f"Few-shot example {name} must be an object, got {value!r}")
+            object.__setattr__(self, name, MappingProxyType(dict(value)))
+
+    def __hash__(self) -> int:
+        return hash((self.text, self.label, self.id))
+
+    def fields(self, answer: str) -> dict:
+        """The values an `example_template` may use."""
+        swaps = dict(self.swaps)
+        return {
+            "text": self.text,
+            "answer": answer,
+            "label": self.label,
+            "id": self.id or "",
+            "attributes": dict(self.attributes),
+            "meta": dict(self.meta),
+            "swap": swaps,
+            "counterfactual": next(iter(swaps.values()), None),
+        }
 
 
 @dataclass(frozen=True)
@@ -91,7 +134,8 @@ class PromptSpec:
         )
 
     def check_task(self, task: TaskSpec) -> None:
-        """Raise ValueError unless every example label and option key is a level of `task`."""
+        """Raise ValueError unless every example label and option key is a
+        level of `task` and every example has the fields its template uses."""
         for example in self.examples:
             task.level_index(example.label)
         for level in (self.options or {}):
@@ -99,6 +143,7 @@ class PromptSpec:
         answers = [answer.strip().lower() for answer in self.answers(task)]
         if len(set(answers)) != len(answers):
             raise ValueError(f"Prompt {self.name!r}: answer options must differ, got {answers}")
+        self._render_examples(task)
 
     def answers(self, task: TaskSpec) -> list[str]:
         """The answer string for each level of `task`, in level order."""
@@ -110,20 +155,38 @@ class PromptSpec:
 
     def render(self, text: str, task: TaskSpec) -> str:
         """The full prompt for one post. Only `text` varies between arms."""
-        answers = self.answers(task)
-        rendered_examples = "".join(
-            self.example_template.format(text=example.text, answer=answers[task.level_index(example.label)])
-            for example in self.examples
-        )
         prompt = self.template.format(
-            instruction=self.instruction_for(task), examples=rendered_examples, text=text
+            instruction=self.instruction_for(task), examples=self._render_examples(task), text=text
         )
         return prompt.lstrip()
+
+    def _render_examples(self, task: TaskSpec) -> str:
+        answers = self.answers(task)
+        rendered = []
+        for index, example in enumerate(self.examples):
+            values = example.fields(answers[task.level_index(example.label)])
+            try:
+                if "{counterfactual}" in self.example_template and values["counterfactual"] is None:
+                    raise KeyError("counterfactual")
+                rendered.append(self.example_template.format(**values))
+            except (KeyError, IndexError) as exc:
+                name = example.id or f"#{index + 1}"
+                raise ValueError(
+                    f"Prompt {self.name!r}: few-shot example {name} has no value for {exc} used in its "
+                    "example_template (check its attributes, swaps and meta)"
+                ) from None
+        return "".join(rendered)
 
     def to_public_dict(self) -> dict:
         public: dict = {"name": self.name, "instruction": self.instruction}
         if self.examples:
-            public["examples"] = [{"text": e.text, "label": e.label} for e in self.examples]
+            public["examples"] = [
+                {key: value for key, value in (
+                    ("id", e.id), ("text", e.text), ("label", e.label),
+                    ("attributes", dict(e.attributes)), ("swaps", dict(e.swaps)), ("meta", dict(e.meta)),
+                ) if value not in (None, {})}
+                for e in self.examples
+            ]
         if self.template != DEFAULT_TEMPLATE:
             public["template"] = self.template
         if self.example_template != DEFAULT_EXAMPLE_TEMPLATE:
@@ -135,34 +198,15 @@ class PromptSpec:
         return public
 
 
-def prompt_from_dict(raw: Mapping, name: str = "prompt") -> PromptSpec:
-    """Build a PromptSpec from a config mapping (docs/DATA.md §3.4)."""
-    allowed = {"name", "instruction", "examples", "template", "example_template", "options", "system"}
-    unknown = sorted(set(raw) - allowed)
-    if unknown:
-        raise ValueError(f"prompt {name!r}: unknown key(s) {unknown}; allowed keys are {sorted(allowed)}")
-    examples = raw.get("examples") or ()
-    if not isinstance(examples, Sequence) or isinstance(examples, str):
-        raise ValueError(f"prompt {name!r}: examples must be a list of {{text, label}} objects")
-    for index, example in enumerate(examples):
-        if not isinstance(example, Mapping) or set(example) != {"text", "label"}:
-            raise ValueError(f"prompt {name!r}: examples[{index}] must have exactly 'text' and 'label'")
-    return PromptSpec(
-        name=raw.get("name", name),
-        instruction=raw.get("instruction"),
-        examples=tuple(Example(text=e["text"], label=e["label"]) for e in examples),
-        template=raw.get("template", DEFAULT_TEMPLATE),
-        example_template=raw.get("example_template", DEFAULT_EXAMPLE_TEMPLATE),
-        options=raw.get("options"),
-        system=raw.get("system"),
-    )
-
-
 def _check_template(prompt_name: str, which: str, template: str, allowed: frozenset[str], required: str) -> None:
     if not isinstance(template, str):
         raise ValueError(f"Prompt {prompt_name!r}: {which} must be a string")
     try:
-        fields = [name for _, name, _, _ in string.Formatter().parse(template) if name is not None]
+        fields = [
+            re.split(r"[.\[]", name, maxsplit=1)[0]
+            for _, name, _, _ in string.Formatter().parse(template)
+            if name is not None
+        ]
     except ValueError as exc:
         raise ValueError(f"Prompt {prompt_name!r}: {which} is not a valid template: {exc}") from None
     unknown = sorted(set(fields) - allowed)

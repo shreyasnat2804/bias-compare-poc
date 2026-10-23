@@ -20,16 +20,19 @@ alone and combined, on BERT-family content moderation classifiers). It was forke
 `7d4020d`. With the POC's settings it reproduces the POC's numbers exactly (locked by a
 golden-file test).
 
-**Input**: Hugging Face models (Hub ids or fine-tuned checkpoints in Drive), each with
-an optional prompt, and a dataset of posts tagged with swaps and control synonyms.
+**Input**: Hugging Face models (Hub ids or fine-tuned checkpoints in Drive), a dataset
+of posts tagged with swaps and control synonyms, and, from the data side, a prompts
+file whose few-shot examples carry their bias signatures.
 **Output**: per bias axis (gender, disability), each model's bias beyond wording
 sensitivity, a ranking, and Holm-corrected pairwise comparisons, as tables, plots and
 one JSON file.
 
 What it supports:
 
-- **The M0 to M3 design**: the same model as several variants via `id` and per-model
-  prompts (instruction plus labelled few-shot examples).
+- **The M0 to M3 design**: the same model as several variants via `id`, each mapped to
+  a prompt from the data side's prompts file (instruction, or instruction plus
+  few-shot examples). The framework checks that no few-shot example is an evaluated
+  post.
 - **Hugging Face classifiers** (BERT, RoBERTa, ModernBERT, ...) with label mapping,
   and **Hugging Face LLMs** scored on their answer-option probabilities.
 - **Gender and disability axes** in one run (custom axes too), with **tagged
@@ -48,9 +51,9 @@ What it supports:
 Open `notebooks/bias_study.ipynb` in Colab (File, Open notebook, GitHub tab, this
 repository; pick the branch that holds the framework). Run the cells top to bottom:
 the first one clones the repository and installs it, the model cell defines M0 to M3,
-and the data cell points at your tagged dataset. It runs as is on
-`data/sample_study.jsonl` (20 hand-written tagged posts), with two public classifiers
-standing in for your models. Set a Colab secret `HF_TOKEN` only for gated or private
+the prompts file and the dataset are inputs you point it at. It runs as is on the
+placeholders `data/sample_prompts.yaml` and `data/sample_study.jsonl` (20 hand-written
+tagged posts), with two public classifiers standing in for your models. Set a Colab secret `HF_TOKEN` only for gated or private
 models.
 
 The same run from a terminal:
@@ -64,14 +67,15 @@ biascompare run configs/study.yaml       # writes results/study.json, prints eac
 Or from Python:
 
 ```python
-from biascompare import Example, ModelSpec, PromptSpec, compare_axes
+from biascompare import ModelSpec, compare_axes, load_prompts
 
-few_shot = PromptSpec(instruction="Is this post toxic?", examples=(Example("You idiot.", "toxic"),))
+prompts = load_prompts("data/sample_prompts.yaml")  # the data side's prompts file
+base, tuned = "s-nlp/roberta_toxicity_classifier", "/content/drive/MyDrive/kqv/m2"
 models = [
-    ModelSpec("s-nlp/roberta_toxicity_classifier", id="M0"),
-    ModelSpec("s-nlp/roberta_toxicity_classifier", id="M1", prompt=few_shot),
-    ModelSpec("/content/drive/MyDrive/kqv/m2", id="M2"),
-    ModelSpec("/content/drive/MyDrive/kqv/m2", id="M3", prompt=few_shot),
+    ModelSpec(base, id="M0", prompt=prompts["instruction"]),
+    ModelSpec(base, id="M1", prompt=prompts["few_shot"]),
+    ModelSpec(tuned, id="M2", prompt=prompts["instruction"]),
+    ModelSpec(tuned, id="M3", prompt=prompts["few_shot"]),
 ]
 report = compare_axes(models, "data/sample_study.jsonl", axes=["gender", "disability"], controls="tagged")
 ```
@@ -94,6 +98,7 @@ if `matplotlib` or `torch` is not installed.
 src/biascompare/          the package
 notebooks/bias_study.ipynb  the Colab notebook for the study
 data/sample_study.jsonl   20 hand-written tagged posts (gender and disability)
+data/sample_prompts.yaml  placeholder prompts file (+ sample_few_shot.jsonl examples)
 data/posts.jsonl          the POC's 10 sample posts
 configs/                  study.yaml, poc.yaml, validation.yaml
 scripts/                  build_validation_set.py (TweetEval gender set)

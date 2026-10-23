@@ -13,7 +13,6 @@ with `token_env` instead.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -22,7 +21,9 @@ from biascompare.axes import AxisSpec, get_axis
 from biascompare.compare import compare_axes, compare_models
 from biascompare.inputs import ModelSpec
 from biascompare.perturb import ControlsSpec
-from biascompare.prompts import PromptSpec, prompt_from_dict
+from biascompare.fileio import read_mapping
+from biascompare.prompt_files import load_prompts, prompt_from_dict, prompts_from_dict
+from biascompare.prompts import PromptSpec
 from biascompare.tasks import TaskSpec, get_task
 
 _RUN_KEYS = frozenset(
@@ -63,7 +64,7 @@ def load_config(path: str | Path) -> RunConfig:
     config_path = Path(path)
     if not config_path.is_file():
         raise ValueError(f"Config file not found: {config_path}")
-    raw = _read_mapping(config_path)
+    raw = read_mapping(config_path)
     return config_from_dict(raw, base_dir=config_path.parent)
 
 
@@ -88,7 +89,7 @@ def config_from_dict(raw: Mapping, base_dir: str | Path = ".") -> RunConfig:
     axes_raw = raw["axes"] if multi_axis else [raw.get("axis", "gender")]
     if not isinstance(axes_raw, list) or not axes_raw:
         raise ValueError("run config 'axes' must be a non-empty list of axis names or axis objects")
-    prompts = _prompts_from_value(raw.get("prompts"))
+    prompts = _prompts_from_value(raw.get("prompts"), base)
 
     output = raw.get("output")
     return RunConfig(
@@ -123,26 +124,6 @@ def run(config: RunConfig) -> dict:
     if config.multi_axis:
         return compare_axes(list(config.models), config.dataset, axes=list(config.axes), **common)
     return compare_models(list(config.models), config.dataset, axis=config.axis, **common)
-
-
-def _read_mapping(path: Path) -> object:
-    text = path.read_text(encoding="utf-8")
-    suffix = path.suffix.lower()
-    if suffix == ".json":
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
-    if suffix in (".yaml", ".yml"):
-        try:
-            import yaml
-        except ImportError as exc:
-            raise RuntimeError("Reading YAML configs needs the `pyyaml` package") from exc
-        try:
-            return yaml.safe_load(text)
-        except yaml.YAMLError as exc:
-            raise ValueError(f"Invalid YAML in {path}: {exc}") from exc
-    raise ValueError(f"Config file must end in .json, .yaml or .yml, got {path.name!r}")
 
 
 def _reject_unknown(where: str, raw: Mapping, allowed: frozenset[str]) -> None:
@@ -223,17 +204,16 @@ def _controls_from_value(value: object) -> ControlsSpec:
     return ControlsSpec(**value)
 
 
-def _prompts_from_value(value: object) -> dict[str, PromptSpec]:
+def _prompts_from_value(value: object, base: Path) -> dict[str, PromptSpec]:
+    """`prompts` is a path to the data side's prompts file (relative to the
+    config) or, for quick experiments, an inline mapping of named prompts."""
     if value is None:
         return {}
+    if isinstance(value, str):
+        return load_prompts(_resolve(base, value, "prompts"))
     if not isinstance(value, Mapping):
-        raise ValueError("run config 'prompts' must map prompt names to prompt objects")
-    prompts = {}
-    for name, raw in value.items():
-        if not isinstance(raw, Mapping):
-            raise ValueError(f"prompt {name!r} must be an object")
-        prompts[name] = prompt_from_dict(raw, name=name)
-    return prompts
+        raise ValueError("run config 'prompts' must be a path to a prompts file or a mapping of named prompts")
+    return prompts_from_dict(value, base_dir=base)
 
 
 def _model_prompt(value: object, prompts: Mapping[str, PromptSpec]) -> PromptSpec | None:

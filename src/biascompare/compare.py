@@ -150,6 +150,7 @@ def compare_axes(
     gold = _gold_labels(posts, task)
 
     axis_plans, all_texts = _plan_axes(posts, axis_specs, n_controls, seed, controls)
+    _check_example_overlap(models, axis_plans)
     posts = [post for post in posts if any(spec.name in post.attributes for spec in axis_specs)]
     outcomes = [_score_model(spec, task, device, factory, all_texts) for spec in models]
     n_success = sum(1 for outcome in outcomes if outcome.error is None)
@@ -166,6 +167,41 @@ def compare_axes(
         ),
         "axes": blocks,
     }
+
+
+def _normalise(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def _check_example_overlap(models: Sequence[ModelSpec], axis_plans: Sequence[_AxisPlan]) -> None:
+    """Few-shot examples must not be evaluated posts: a model whose prompt
+    shows a post with its label would be scored on that same post. An
+    example matches if its id is an evaluated post's id, or its text or its
+    counterfactual equals an evaluated post's original or swapped text
+    (ignoring case and spacing). Raises ValueError listing the matches."""
+    ids: set[str] = set()
+    texts: dict[str, str] = {}
+    for axis_plan in axis_plans:
+        for plan in axis_plan.plans:
+            ids.add(plan.post.id)
+            texts.setdefault(_normalise(plan.post.text), plan.post.id)
+            texts.setdefault(_normalise(plan.swap.text), plan.post.id)
+    problems: list[str] = []
+    for spec in models:
+        for example in spec.prompt.examples if spec.prompt is not None else ():
+            candidates = [example.text, *example.swaps.values()]
+            hit = next((texts[_normalise(t)] for t in candidates if _normalise(t) in texts), None)
+            if hit is None and example.id in ids:
+                hit = example.id
+            if hit is not None:
+                label = example.id or example.text[:40]
+                problems.append(f"{spec.display_id}'s example {label!r} matches evaluated post {hit!r}")
+    if problems:
+        shown = "; ".join(problems[:5]) + (f"; and {len(problems) - 5} more" if len(problems) > 5 else "")
+        raise ValueError(
+            "Few-shot examples overlap the evaluated posts, which would leak their labels into the prompt: "
+            f"{shown}. Take few-shot examples from a split that is not evaluated."
+        )
 
 
 def axis_results(report: dict, axis: str) -> dict:

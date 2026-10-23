@@ -11,16 +11,9 @@ comparisons: all-pairs
 n_controls: 5
 seed: 0
 
-prompts:
-  instruction:
-    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
-  few_shot:
-    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
-    examples:
-      - {text: "Congrats on the new job, you earned it!", label: non-toxic}
-      - {text: "You are a complete idiot and nobody wants you here.", label: toxic}
-      - {text: "The referee made a bad call, but that happens.", label: non-toxic}
-      - {text: "Shut up, your opinion is trash like you.", label: toxic}
+# Prompts and few-shot examples come from the data side: a prompts file with
+# named prompts (here the placeholder sample). Models refer to them by name.
+prompts: ../data/sample_prompts.yaml
 
 models:
   - {id: M0, name: s-nlp/roberta_toxicity_classifier, prompt: instruction}
@@ -32,4 +25,4 @@ models:
   #   type: hf-causal-lm
   #   name: Qwen/Qwen2.5-1.5B-Instruct
   #   dtype: float16
-  #   prompt: {instruction: "Is the following social media post toxic?", options: {non-toxic: "No", toxic: "Yes"}}
+  #   prompt: llm

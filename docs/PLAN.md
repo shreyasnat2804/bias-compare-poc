@@ -14,15 +14,21 @@ contribution (3) is a reusable auditing framework that accepts both encoder
 classifiers and LLMs. This repository is that framework.
 
 **Input**: Hugging Face models, run on Google Colab: the variants M0 to M3, and
-optionally LLMs; a dataset of posts tagged with swaps and control synonyms; an optional
-prompt per model. **Output**: the models' relative bias on each axis.
+optionally LLMs; a dataset of posts tagged with swaps and control synonyms; and from the
+data side, the prompts and few-shot examples (the examples carry their bias
+signatures). **Output**: the models' relative bias on each axis.
+
+Division of work: the data side delivers the tagged posts and the prompts file with its
+few-shot examples; the testing framework (this repository) loads and checks them,
+applies each variant's prompt, runs the counterfactual test and compares the models.
 
 | Proposal | Framework |
 |-|-|
-| M0: pretrained BERT-family classifier, instruction prompt | `ModelSpec(base, id="M0", prompt=instruction)` |
-| M1: M0 plus prompt engineering (labelled few-shot examples) | `ModelSpec(base, id="M1", prompt=few_shot)`, same model, different prompt |
-| M2: M0 fully fine-tuned | `ModelSpec(<fine-tuned checkpoint>, id="M2", prompt=instruction)`, a Hub id or a Drive folder |
-| M3: M2 plus prompt engineering | `ModelSpec(<fine-tuned checkpoint>, id="M3", prompt=few_shot)` |
+| Prompts and labelled few-shot examples | A prompts file from the data side (DATA.md §3.4); examples are data rows with attributes and tagged swaps, which templates can show (for example each example next to its counterfactual) |
+| M0: pretrained BERT-family classifier, instruction prompt | `ModelSpec(base, id="M0", prompt=prompts["instruction"])` |
+| M1: M0 plus prompt engineering (labelled few-shot examples) | `ModelSpec(base, id="M1", prompt=prompts["few_shot"])`, same model, different prompt |
+| M2: M0 fully fine-tuned | `ModelSpec(<fine-tuned checkpoint>, id="M2", prompt=prompts["instruction"])`, a Hub id or a Drive folder |
+| M3: M2 plus prompt engineering | `ModelSpec(<fine-tuned checkpoint>, id="M3", prompt=prompts["few_shot"])` |
 | LLMs in the same audit | `ModelSpec(..., type="hf-causal-lm")` |
 | Gender and disability axes | Built-in axes `gender` and `disability`, run together with `compare_axes` |
 | Multi-word swaps of all co-referring words and modifiers | Per-row tagged `swaps`, phrase pairs, counted in word edits (DATA.md §2.3) |
@@ -155,9 +161,10 @@ without a classification head; not needed when M0 is a toxicity classifier.
 1. The instruction, examples, options, template and system message are identical for
    the original, the swap and every control of a post; only the `{text}` slot changes.
    `PromptSpec.render` is a pure function of the post, so this holds by construction.
-2. Few-shot examples are fixed for the whole run, not chosen per post. (If examples are
-   ever selected per post, they must be selected from the original and reused for its
-   swap and controls.)
+2. Few-shot examples come from the data side and are fixed for the whole run, not
+   chosen per post. (If examples are ever selected per post, they must be selected
+   from the original and reused for its swap and controls.) No example may be an
+   evaluated post or its swap: the run checks this and refuses to start otherwise.
 3. Option order is fixed for the whole run, so any position bias affects every arm
    equally and cancels in Δ.
 4. The instruction must not mention the protected attribute ("Is this post sexist?"
@@ -206,7 +213,8 @@ src/biascompare/
 ├── config.py, cli.py      # run configs, `biascompare run|preview`
 ├── tasks.py               # TaskSpec and built-in toxicity tasks (2 to 4 levels)
 ├── axes.py                # AxisSpec, built-in gender and disability axes
-├── prompts.py             # PromptSpec: instruction, few-shot examples, template, options
+├── prompts.py             # PromptSpec, Example: rendering prompts and few-shot examples
+├── prompt_files.py        # loading the data side's prompts file and example rows
 ├── inputs.py              # ModelSpec, Post (tags), dataset loading and validation
 ├── perturb/               # lexicon swaps, tagged swaps, synonym / tagged / masked-LM controls
 ├── perturbation_plan.py   # per-axis plan, flags, eligibility
@@ -216,7 +224,7 @@ src/biascompare/
 └── resources/             # lexicon, synonyms, protected words, stopwords
 notebooks/bias_study.ipynb # the Colab notebook for the study
 configs/                   # study, POC and validation configs
-data/                      # posts.jsonl (POC), sample_study.jsonl (tagged sample)
+data/                      # posts.jsonl (POC), sample_study.jsonl, sample_prompts.yaml, sample_few_shot.jsonl
 scripts/                   # build_validation_set.py
 ```
 
@@ -251,13 +259,17 @@ scripts/                   # build_validation_set.py
 
 ## 12. Open questions
 
-1. **Tag format.** The tagging step should emit DATA.md §2.3 as is. Is the
+1. **Prompts file and example rows.** The data side's prompts and few-shot examples
+   should follow DATA.md §3.4. Which bias-signature fields should the examples carry
+   (attributes and swaps are supported; anything else fits in `meta`), and should the
+   examples be shown with their counterfactual (`few_shot_pairs` in the sample)?
+2. **Tag format.** The tagging step should emit DATA.md §2.3 as is. Is the
    per-occurrence behaviour (a phrase replaces every occurrence) right for your posts,
    or do some need occurrence-level tags?
-2. **Prompting the classifiers.** The framework prepends the instruction and examples
+3. **Prompting the classifiers.** The framework prepends the instruction and examples
    to the classifier's input (§4.1). If M0 is instead a pretrained encoder without a
    classification head, it needs the planned cloze adapter (§4.2).
-3. **Repository.** The framework still lives on a branch of `bias-compare-poc`; the
+4. **Repository.** The framework still lives on a branch of `bias-compare-poc`; the
    notebook clones that branch. A separate `bias-compare` repository needs to be
    created on GitHub (the integration here cannot create repositories).
-4. **Data source and licences** for the ETHOS and ToxicCommons subsets (DATA.md §2.7).
+5. **Data source and licences** for the ETHOS and ToxicCommons subsets (DATA.md §2.7).

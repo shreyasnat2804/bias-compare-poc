@@ -12,6 +12,7 @@ from biascompare.compare import axis_results, compare_axes, compare_models, prev
 from biascompare.config import RunConfig, config_from_dict, load_config, run
 from biascompare.inputs import ModelSpec, Post, load_posts
 from biascompare.perturb import ControlsSpec
+from biascompare.prompt_files import load_examples, load_prompts
 from biascompare.prompts import Example, PromptSpec
 from biascompare.results import save_results
 from biascompare.tasks import BUILTIN_TASKS, TaskSpec, get_task
@@ -23,6 +24,8 @@ __all__ = [
     "get_axis",
     "PromptSpec",
     "Example",
+    "load_prompts",
+    "load_examples",
     "compare_axes",
     "axis_results",
     "ranking_rows",

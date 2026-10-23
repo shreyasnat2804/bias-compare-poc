@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from biascompare import Example, ModelSpec, PromptSpec, compare_models
-from biascompare.prompts import prompt_from_dict
+from biascompare.prompt_files import prompt_from_dict
 from biascompare.tasks import BUILTIN_TASKS, DEFAULT_TASK
 from test_compare import DATASET, FakeScorer, _biased_toxicity, _unbiased_toxicity
 
@@ -72,7 +72,7 @@ def test_prompt_from_dict_validates_shape():
     assert prompt.examples == (Example("a", "toxic"),)
     with pytest.raises(ValueError, match="unknown key"):
         prompt_from_dict({"instructions": "Q?"})
-    with pytest.raises(ValueError, match="exactly 'text' and 'label'"):
+    with pytest.raises(ValueError, match="needs 'label'"):
         prompt_from_dict({"examples": [{"text": "a"}]})
 
 

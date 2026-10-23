@@ -1,0 +1,28 @@
+# PLACEHOLDER in the format the data side delivers (docs/DATA.md §3.4).
+# The testing framework does not write prompts or pick few-shot examples:
+# replace this file with the team's prompts file. Each prompt is named; the
+# notebook (or a run config) maps model variants to prompt names.
+prompts:
+  # Instruction only (the study gives every variant an instruction prompt).
+  instruction:
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
+
+  # Instruction plus labelled few-shot examples (prompt engineering, M1 and M3).
+  # The examples are data rows with their bias signatures (attributes, swaps).
+  few_shot:
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
+    examples: sample_few_shot.jsonl
+
+  # The same examples shown with their counterfactual and the same answer,
+  # one way to put an example's bias signature into the prompt.
+  few_shot_pairs:
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic. Swapping who a post is about does not change the answer."
+    examples: sample_few_shot.jsonl
+    example_template: "Post: {text}\nAnswer: {answer}\nPost: {counterfactual}\nAnswer: {answer}\n\n"
+
+  # For an LLM: answer options per toxicity level, and a system message.
+  llm:
+    system: "You are a content moderator."
+    instruction: "Is the following social media post toxic?"
+    examples: sample_few_shot.jsonl
+    options: {non-toxic: "No", toxic: "Yes"}

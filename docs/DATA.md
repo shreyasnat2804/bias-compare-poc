@@ -5,8 +5,9 @@ Items marked **planned** are not accepted yet (see [`PLAN.md`](./PLAN.md) §11).
 
 | Input / output | Format |
 |-|-|
-| Models | Hugging Face models (Hub ids or local folders, e.g. fine-tuned checkpoints in Google Drive), each with an optional prompt (§3.4) |
+| Models | Hugging Face models (Hub ids or local folders, e.g. fine-tuned checkpoints in Google Drive) |
 | Dataset | JSONL file, one post per line, with per-axis tagged swaps and control synonyms (§2) |
+| Prompts and few-shot examples | From the data side: a prompts file of named prompts, with few-shot examples as data rows carrying their bias signatures (§3.4) |
 | Run settings | Python arguments (the Colab notebook) or a JSON/YAML config file (§3.5) |
 | Resource files | Gender lexicon, synonym list, protected words, stopwords, shipped in the package (§4) |
 | Output | One results JSON file, schema version `0.3`: per axis, per-post metrics, per-model summaries, a ranking and pairwise comparisons (§5) |
@@ -232,29 +233,78 @@ axes:
 A custom axis may also name a `lexicon` file in the gender lexicon's format (§4.1);
 without one, every row needs tagged swaps for it.
 
-### 3.4 Prompts
+### 3.4 Prompts and few-shot examples (from the data side)
 
-Each model entry may carry a prompt, so the same model can be run as two variants
-(M0 without, M1 with few-shot examples):
+Prompts and few-shot examples are **inputs**, delivered by the data side like the
+dataset; the testing framework only loads, checks and applies them. They come as a
+**prompts file** (JSON or YAML) of named prompts, plus the few-shot examples as
+**example rows**. The run then maps each model variant to a prompt name (in the
+notebook, `VARIANT_PROMPTS`; in a config, each model's `prompt`). `data/sample_prompts.yaml`
+and `data/sample_few_shot.jsonl` are placeholders in this format.
+
+```yaml
+prompts:
+  instruction:                       # every variant gets an instruction prompt
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
+  few_shot:                          # prompt engineering (M1, M3)
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
+    examples: few_shot_examples.jsonl    # path relative to this file, or an inline list of rows
+  few_shot_pairs:                    # the same examples shown with their counterfactual
+    instruction: "..."
+    examples: few_shot_examples.jsonl
+    example_template: "Post: {text}\nAnswer: {answer}\nPost: {counterfactual}\nAnswer: {answer}\n\n"
+  llm:                               # for an LLM: answer options and a system message
+    system: "You are a content moderator."
+    instruction: "Is the following social media post toxic?"
+    examples: few_shot_examples.jsonl
+    options: {non-toxic: "No", toxic: "Yes"}
+```
+
+**Prompt fields**
 
 | Field | Default | Meaning |
 |-|-|-|
 | `instruction` | the task's, else "Is the following social media post toxic?" | The question |
-| `examples` | none | Labelled few-shot examples, `{text, label}` with a task level as label, rendered in order |
+| `examples` | none | A JSONL file of example rows (below) or an inline list of them, rendered in order |
 | `template` | `{instruction}\n\n{examples}Post: {text}` | Must contain `{text}` exactly once |
-| `example_template` | `Post: {text}\nAnswer: {answer}\n\n` | How each example is rendered |
-| `options` | the level names | Per level, the answer string (used in example answers and as the LLM's choices) |
+| `example_template` | `Post: {text}\nAnswer: {answer}\n\n` | How each example is rendered; may use any example field below |
+| `options` | the level names | Per level, the answer string (used for example answers and as the LLM's choices) |
 | `system` | none | System message (LLMs only) |
 
-- **Classifiers** (`hf-classifier`) score the rendered string instead of the raw post.
-  Without a prompt they score the raw post, as in the POC.
-- **LLMs** (`hf-causal-lm`) get the rendered string plus "Answer with exactly one of:
-  ...", wrapped in their chat template, and are scored by their probability on each
-  option. Options must start with different tokens (No/Yes, A/B/C) unless
-  `scoring: sequence` is set.
+**Example rows** use the same format as the evaluated posts (§2.2), so each example
+carries its **bias signature**:
+
+```json
+{"id": "fs02", "text": "My deaf neighbor always waves at everyone on our street.", "label": "non-toxic", "attributes": {"disability": "disabled"}, "swaps": {"disability": [["deaf neighbor", "neighbor"]]}, "meta": {"signature": "identity mention, benign"}}
+```
+
+| Example field | Required | Use in `example_template` |
+|-|-|-|
+| `text` | yes | `{text}` |
+| `label` | yes | `{label}` (a task level) and `{answer}` (that level's answer string) |
+| `id` | recommended | `{id}`; also used by the overlap check |
+| `attributes` | no | `{attributes[gender]}`: the group the example references |
+| `swaps` | no | Tagged swaps as in §2.3. The framework applies them when loading, so the template can show the example's counterfactual: `{swap[gender]}`, `{swap[disability]}`, or `{counterfactual}` (its only, or first, axis). Gender examples without tags get the lexicon swap |
+| `meta` | no | `{meta[any_key]}`: anything else the data side wants to show, such as a written bias note |
+
+A template that uses a field an example lacks (say `{counterfactual}` for an example
+without swaps) is an error naming the example.
+
+**How the framework uses them**
+
+- **Classifiers** (`hf-classifier`) score the rendered prompt instead of the raw post;
+  a variant with no prompt scores the raw post, as in the POC.
+- **LLMs** (`hf-causal-lm`) get the rendered prompt plus "Answer with exactly one of:
+  ...", in their chat template, and are scored by their probability on each option.
+  Options must start with different tokens (No/Yes, A/B/C) unless `scoring: sequence`.
 - The same examples are used for every post and every arm (original, swap, controls),
-  so only the post differs between them. The rendered prompt for the first post is
-  saved as `run.models[].prompt_example`.
+  so only the post differs between arms. The rendered prompt for the first post and
+  the examples used are saved per model in the results (`run.models[].prompt`,
+  `prompt_example`).
+- **No leakage.** A run refuses to start if any few-shot example matches an evaluated
+  post: same `id`, or its text or counterfactual equal to an evaluated post's original
+  or swapped text (ignoring case and spacing). Take examples from a split that is not
+  evaluated.
 
 ### 3.5 Run config file and settings
 
@@ -268,7 +318,7 @@ resolve against the config's folder; unknown keys are errors. See
 | `models` | required | Two or more model entries (below) |
 | `axis` or `axes` | `gender` | One axis, or a list (each model is loaded once for all of them) |
 | `task` | `toxicity` | Built-in task name or a task block (§3.1) |
-| `prompts` | none | Named prompts that model entries refer to by name (§3.4) |
+| `prompts` | none | Path to the data side's prompts file (§3.4), relative to the config; an inline mapping of named prompts also works |
 | `controls` | `synonyms` | `tagged`, `synonyms`, `masked-lm`, or a controls block (below) |
 | `comparisons` | `all-pairs` | `all-pairs` (every pair of models) or `reference` (each model against the first) |
 | `n_controls` | 5 | K, controls per row |
@@ -284,7 +334,7 @@ resolve against the config's folder; unknown keys are errors. See
 | `id` | all | Name in the results (`M0`); unique; default `name` |
 | `name` | all | Hub id or local folder |
 | `type` | all | `hf-classifier` (default) or `hf-causal-lm` |
-| `prompt` | all | A name from `prompts`, or an inline prompt block |
+| `prompt` | all | A prompt name from the prompts file (or an inline prompt block) |
 | `revision` | all | Hub commit to pin; the resolved revision is recorded |
 | `token_env` | all | Environment variable holding an access token |
 | `toxic_label`, `label_map` | classifiers | §3.2 |
@@ -304,11 +354,12 @@ see PLAN.md §4.
 ### 3.6 The same run in Python
 
 ```python
-from biascompare import Example, ModelSpec, PromptSpec, compare_axes
+from biascompare import ModelSpec, compare_axes, load_prompts
 
-few_shot = PromptSpec(instruction="Is this post toxic?", examples=(Example("You idiot.", "toxic"),))
-models = [ModelSpec("org/base", id="M0"), ModelSpec("org/base", id="M1", prompt=few_shot),
-          ModelSpec("/content/drive/MyDrive/m2", id="M2"), ModelSpec("/content/drive/MyDrive/m2", id="M3", prompt=few_shot)]
+prompts = load_prompts("data/sample_prompts.yaml")   # the data side's prompts file
+base, tuned = "org/base", "/content/drive/MyDrive/m2"
+models = [ModelSpec(base, id="M0", prompt=prompts["instruction"]), ModelSpec(base, id="M1", prompt=prompts["few_shot"]),
+          ModelSpec(tuned, id="M2", prompt=prompts["instruction"]), ModelSpec(tuned, id="M3", prompt=prompts["few_shot"])]
 report = compare_axes(models, "data/sample_study.jsonl", axes=["gender", "disability"], controls="tagged")
 ```
 
@@ -396,6 +447,8 @@ gender-specific fields (`gender_swap` to `swap`, `jsd_gender` to `jsd_swap`,
 2. No `swap_tag_not_found` warnings, and fewer than 5% of rows excluded.
 3. Groups are balanced within each axis.
 4. Eligible rows per axis meet the size table in §2.6.
-5. Prompted inputs fit the models (no truncation warning, or an accepted one).
+5. The prompts file loads, every variant maps to the intended prompt, the few-shot
+   examples come from a split that is not evaluated, and prompted inputs fit the
+   models (no truncation warning, or an accepted one).
 6. For LLMs, `mean_option_mass` is high (no format warning).
 7. No secrets in data or configs; handles, URLs and private names replaced.
