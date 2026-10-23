@@ -1,5 +1,5 @@
 """Build the shared perturbation plan for a dataset. See DESIGN.md §5, §7 and
-docs/DATA.md §2.4.
+docs/DATA.md §2.5.
 
 Both perturbations (the targeted swap on the run's axis, and the baseline
 controls) are generated **once per row** here and reused for every model,
@@ -180,7 +180,7 @@ def _post_flags(
 
 
 def is_eligible(plan: PostPlan) -> bool:
-    """False if `plan` must be excluded from statistics (docs/DATA.md §2.4:
+    """False if `plan` must be excluded from statistics (docs/DATA.md §2.5:
     a group mismatch, a swap that changed no words or could not be made, or
     zero usable controls)."""
     return is_eligible_flags(plan.flags)

@@ -147,6 +147,19 @@ def test_shipped_example_configs_load():
     assert poc.models[1].label_map == {"toxic": ("toxic",), "non-toxic": ("neutral",)}
     validation = load_config(configs / "validation.yaml")
     assert validation.controls.method == "masked-lm"
+    study = load_config(configs / "study.yaml")
+    assert [m.id for m in study.models] == ["M0", "M1", "M2", "M3"]
+    assert study.models[0].name == study.models[1].name and study.models[1].prompt.examples
+    assert [a.name for a in study.axes] == ["gender", "disability"] and study.controls.method == "tagged"
+
+
+def test_study_config_previews_cleanly(capsys):
+    from pathlib import Path
+
+    assert main(["preview", str(Path(__file__).resolve().parents[1] / "configs" / "study.yaml")]) == 0
+    printed = capsys.readouterr().out
+    assert "[gender] 10 rows, controls: tagged" in printed and "[disability] 10 rows" in printed
+    assert "missing_swap_tags" not in printed and "no_controls" not in printed
 
 
 def test_study_config_with_prompts_ids_axes_and_comparisons(tmp_path):

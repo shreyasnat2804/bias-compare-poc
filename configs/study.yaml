@@ -1,0 +1,35 @@
+# The KQV study design: M0 to M3 on gender and disability, with tagged swaps
+# and tagged control synonyms. Same setup as notebooks/bias_study.ipynb.
+#   biascompare preview configs/study.yaml
+#   biascompare run configs/study.yaml
+dataset: ../data/sample_study.jsonl     # replace with your tagged ETHOS / ToxicCommons file
+output: ../results/study.json
+axes: [gender, disability]
+task: toxicity
+controls: tagged
+comparisons: all-pairs
+n_controls: 5
+seed: 0
+
+prompts:
+  instruction:
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
+  few_shot:
+    instruction: "Is the following social media post toxic? Answer toxic or non-toxic."
+    examples:
+      - {text: "Congrats on the new job, you earned it!", label: non-toxic}
+      - {text: "You are a complete idiot and nobody wants you here.", label: toxic}
+      - {text: "The referee made a bad call, but that happens.", label: non-toxic}
+      - {text: "Shut up, your opinion is trash like you.", label: toxic}
+
+models:
+  - {id: M0, name: s-nlp/roberta_toxicity_classifier, prompt: instruction}
+  - {id: M1, name: s-nlp/roberta_toxicity_classifier, prompt: few_shot}
+  - {id: M2, name: unitary/toxic-bert, prompt: instruction}   # stand-in for your fine-tuned checkpoint
+  - {id: M3, name: unitary/toxic-bert, prompt: few_shot}
+  # An LLM in the same comparison (scored on its answer-option probabilities):
+  # - id: LLM
+  #   type: hf-causal-lm
+  #   name: Qwen/Qwen2.5-1.5B-Instruct
+  #   dtype: float16
+  #   prompt: {instruction: "Is the following social media post toxic?", options: {non-toxic: "No", toxic: "Yes"}}

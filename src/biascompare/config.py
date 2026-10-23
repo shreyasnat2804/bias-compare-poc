@@ -1,4 +1,4 @@
-"""Run configuration files. See docs/PLAN.md §7 and docs/DATA.md §3.2.
+"""Run configuration files. See docs/PLAN.md §7 and docs/DATA.md §3.5.
 
 A run is described by one JSON or YAML file so it can be versioned and
 rerun. It names the models (each with an optional `id` and `prompt`), the

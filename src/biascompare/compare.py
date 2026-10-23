@@ -554,7 +554,7 @@ def _data_warnings(axis_plan: _AxisPlan, controls: ControlsSpec | ControlGenerat
         ):
             warnings.append(
                 "Many rows have no controls: the shared synonym list only covers the sample posts. "
-                "Tag control synonyms per row (method 'tagged') or use method 'masked-lm' (docs/DATA.md §2.4)."
+                "Tag control synonyms per row (method 'tagged') or use method 'masked-lm' (docs/DATA.md §2.5)."
             )
     not_found = sum("swap_tag_not_found" in plan.flags for plan in plans)
     if not_found:
@@ -567,12 +567,12 @@ def _data_warnings(axis_plan: _AxisPlan, controls: ControlsSpec | ControlGenerat
     if max(sizes) > 0 and min(sizes) / max(sizes) < _GROUP_BALANCE_WARNING:
         warnings.append(
             f"Eligible rows are unbalanced between groups ({axis.groups[0]}: {sizes[0]}, "
-            f"{axis.groups[1]}: {sizes[1]}), which can confound direction (docs/DATA.md §2.5)."
+            f"{axis.groups[1]}: {sizes[1]}), which can confound direction (docs/DATA.md §2.6)."
         )
     n_eligible = len(eligible_ids)
     if n_eligible < _LOW_N_WARNING:
         warnings.append(
             f"Only {n_eligible} rows are eligible for statistics, so only very large effects are "
-            "detectable (docs/DATA.md §2.5)."
+            "detectable (docs/DATA.md §2.6)."
         )
     return warnings

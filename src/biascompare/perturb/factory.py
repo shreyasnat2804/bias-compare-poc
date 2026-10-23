@@ -36,7 +36,7 @@ class ControlGenerator(Protocol):
 
 @dataclass(frozen=True)
 class ControlsSpec:
-    """How control perturbations are generated (docs/DATA.md §3.2).
+    """How control perturbations are generated (docs/DATA.md §3.5).
 
     Only `method` matters for `synonyms`. For `masked-lm`: the helper
     masked LM and sentence-similarity model, how many suggestions to keep

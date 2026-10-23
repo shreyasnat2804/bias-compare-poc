@@ -1,83 +1,79 @@
 # biascompare
 
 A comparative, counterfactual bias testing framework for text models: fine-tuned
-**BERT-style classifiers** and **LLMs**, side by side. Given a set of models, a dataset
-and a task definition, it measures how much each model's output moves when a protected
-attribute in the input is swapped (he ↔ she), **beyond** how much it moves for a matched,
-irrelevant wording change, and then compares every model against a reference model.
+**BERT-style classifiers** and **LLMs** from Hugging Face, side by side. Given a set of
+models and a dataset of posts, it measures how much each model's output moves when a
+protected attribute in a post is swapped (she ↔ he, "deaf cousin" ↔ "cousin"),
+**beyond** how much it moves for a matched, irrelevant wording change, and then
+compares the models with each other.
 
 The method follows Yang, Levy, Goldberg & Wallace (2026), *"Compared to What? Baselines
 and Metrics for Counterfactual Prompting"* (arXiv:2605.01048): a demographic swap that
 changes a model's output is only evidence of bias if it changes the output more than a
 baseline perturbation of the same size does.
 
-## Status: Phase 1 of the plan
+## Status
 
-This repository is the official framework. It was forked from
+This is the testing framework for the KQV study (fine-tuning and prompt engineering,
+alone and combined, on BERT-family content moderation classifiers). It was forked from
 [`bias-compare-poc`](https://github.com/shreyasnat2804/bias-compare-poc) at commit
-`7d4020d`, which showed that two Hugging Face toxicity classifiers can be compared this
-way. Phase 1 has generalised the POC's core; LLM support starts in Phase 2.
+`7d4020d`. With the POC's settings it reproduces the POC's numbers exactly (locked by a
+golden-file test).
 
-What works now:
+**Input**: Hugging Face models (Hub ids or fine-tuned checkpoints in Drive), each with
+an optional prompt, and a dataset of posts tagged with swaps and control synonyms.
+**Output**: per bias axis (gender, disability), each model's bias beyond wording
+sensitivity, a ranking, and Holm-corrected pairwise comparisons, as tables, plots and
+one JSON file.
 
-- **Toxicity tasks with 2 to 4 ordered levels** (`toxicity`, `toxicity-3`,
-  `toxicity-4`, or your own level names).
-- **Hugging Face classifiers** (BERT, RoBERTa, ...) with a `label_map` from the
-  model's own labels to the task's levels, and pinned revisions.
-- **The v1 dataset format** (`attributes`, optional gold `label`, `meta`), with the
-  POC's format still accepted.
-- **Masked-LM controls** that work on any text, alongside the POC's synonym list.
-- **Run config files** (JSON or YAML) and a `biascompare` command.
-- Per-model effect size, accuracy against gold labels, and data-quality warnings.
+What it supports:
 
-With the POC's settings, the framework reproduces the POC's numbers exactly (locked by
-a golden-file test).
+- **The M0 to M3 design**: the same model as several variants via `id` and per-model
+  prompts (instruction plus labelled few-shot examples).
+- **Hugging Face classifiers** (BERT, RoBERTa, ModernBERT, ...) with label mapping,
+  and **Hugging Face LLMs** scored on their answer-option probabilities.
+- **Gender and disability axes** in one run (custom axes too), with **tagged
+  multi-word swaps** and **tagged control synonyms** per post.
+- **2 to 4 toxicity levels**, accuracy against gold labels, and data-quality warnings.
 
 | Document | What it covers |
 |-|-|
-| [`docs/PLAN.md`](./docs/PLAN.md) | The plan: how one framework takes in both BERT-style models and LLMs, the components, the comparability rules, and the phased roadmap with what is built |
-| [`docs/DATA.md`](./docs/DATA.md) | What data the framework expects: the dataset format and content rules, task levels, label mapping, run config fields, resource files, and the output |
-| [`DESIGN.md`](./DESIGN.md) | The POC design record: method, statistics, and the v0.1 results schema |
+| [`notebooks/bias_study.ipynb`](./notebooks/bias_study.ipynb) | The Colab notebook for the study |
+| [`docs/DATA.md`](./docs/DATA.md) | What data and settings the framework expects (the tag format is §2.3), and what it outputs |
+| [`docs/PLAN.md`](./docs/PLAN.md) | How the framework maps onto the proposal, how classifiers and LLMs share one test, and status |
+| [`DESIGN.md`](./DESIGN.md) | The POC design record: method and statistics |
 
-## Quick start
+## Running the study on Colab
+
+Open `notebooks/bias_study.ipynb` in Colab (File, Open notebook, GitHub tab, this
+repository; pick the branch that holds the framework). Run the cells top to bottom:
+the first one clones the repository and installs it, the model cell defines M0 to M3,
+and the data cell points at your tagged dataset. It runs as is on
+`data/sample_study.jsonl` (20 hand-written tagged posts), with two public classifiers
+standing in for your models. Set a Colab secret `HF_TOKEN` only for gated or private
+models.
+
+The same run from a terminal:
 
 ```bash
 pip install -e .
-biascompare preview configs/poc.yaml   # perturbations only, no models loaded
-biascompare run configs/poc.yaml       # scores both classifiers, writes results/poc.json
+biascompare preview configs/study.yaml   # swaps and controls only, no models loaded
+biascompare run configs/study.yaml       # writes results/study.json, prints each axis's ranking
 ```
 
 Or from Python:
 
 ```python
-from biascompare import ModelSpec, compare_models, save_results
+from biascompare import Example, ModelSpec, PromptSpec, compare_axes
 
-results = compare_models(
-    [
-        ModelSpec("unitary/toxic-bert", toxic_label="toxic"),
-        ModelSpec("s-nlp/roberta_toxicity_classifier", label_map={"toxic": ["toxic"], "non-toxic": ["neutral"]}),
-    ],
-    "data/posts.jsonl",
-    task="toxicity",
-    controls="masked-lm",   # use this for any dataset other than the sample posts
-)
-save_results(results, "results/results.json")
-```
-
-Before using your own dataset, read [`docs/DATA.md`](./docs/DATA.md). In particular,
-use `controls: masked-lm`: the default synonym list only knows the words in the sample
-posts.
-
-## Validating Phase 1 on real data (Colab)
-
-The masked-LM controls need two small helper models from the Hugging Face Hub, so this
-check runs on Colab (or any machine with Hub access). From a clone of this repository:
-
-```bash
-pip install -e .
-python scripts/build_validation_set.py      # 200 gender-balanced TweetEval tweets
-biascompare preview configs/validation.yaml # want fewer than 5% of rows flagged no_controls
-biascompare run configs/validation.yaml
+few_shot = PromptSpec(instruction="Is this post toxic?", examples=(Example("You idiot.", "toxic"),))
+models = [
+    ModelSpec("s-nlp/roberta_toxicity_classifier", id="M0"),
+    ModelSpec("s-nlp/roberta_toxicity_classifier", id="M1", prompt=few_shot),
+    ModelSpec("/content/drive/MyDrive/kqv/m2", id="M2"),
+    ModelSpec("/content/drive/MyDrive/kqv/m2", id="M3", prompt=few_shot),
+]
+report = compare_axes(models, "data/sample_study.jsonl", axes=["gender", "disability"], controls="tagged")
 ```
 
 ## Local development
@@ -95,11 +91,13 @@ if `matplotlib` or `torch` is not installed.
 ## Layout
 
 ```
-src/biascompare/     the package (tasks, perturbations, scoring, statistics, config, CLI)
-data/posts.jsonl     10 hand-written sample posts (v1 format)
-configs/             example run configs
-scripts/             build_validation_set.py
-docs/                the framework plan and the data specification
-DESIGN.md            the POC design record
-tests/               offline pytest suite, golden POC results, tiny-model integration tests
+src/biascompare/          the package
+notebooks/bias_study.ipynb  the Colab notebook for the study
+data/sample_study.jsonl   20 hand-written tagged posts (gender and disability)
+data/posts.jsonl          the POC's 10 sample posts
+configs/                  study.yaml, poc.yaml, validation.yaml
+scripts/                  build_validation_set.py (TweetEval gender set)
+docs/                     the data specification and the plan
+DESIGN.md                 the POC design record
+tests/                    offline pytest suite, golden POC results, tiny-model integration tests
 ```
