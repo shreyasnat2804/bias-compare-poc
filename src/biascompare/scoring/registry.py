@@ -1,18 +1,22 @@
 """Adapter registry: `ModelSpec.type` -> scorer factory. See docs/PLAN.md §3.2.
 
 Orchestration code never imports an adapter directly; it asks the registry
-for the factory matching each model's `type`. New adapters (masked LM,
-causal LM, API LLM) register here.
+for the factory matching each model's `type`: `hf-classifier` (BERT-family
+classifiers) and `hf-causal-lm` (LLMs). New adapters register here.
 """
 
 from __future__ import annotations
 
 from biascompare.inputs import ModelSpec
 from biascompare.scoring.base import Scorer, ScorerFactory
+from biascompare.scoring.causal_lm import hf_causal_lm_factory
 from biascompare.scoring.classifier import hf_classifier_factory
 from biascompare.tasks import TaskSpec
 
-_REGISTRY: dict[str, ScorerFactory] = {"hf-classifier": hf_classifier_factory}
+_REGISTRY: dict[str, ScorerFactory] = {
+    "hf-classifier": hf_classifier_factory,
+    "hf-causal-lm": hf_causal_lm_factory,
+}
 
 
 def register_scorer(scorer_type: str, factory: ScorerFactory) -> None:

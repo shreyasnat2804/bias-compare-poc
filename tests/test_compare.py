@@ -190,7 +190,7 @@ def test_results_schema_per_post_and_summary():
         "sensitivity", "raw_swap_effect", "mean_delta", "p_delta", "p_delta_bonferroni",
         "mean_direction", "direction_ci", "p_direction", "flip_rate_swap",
         "flip_rate_controls", "effect_size", "n_eligible", "accuracy", "n_labeled", "n_truncated",
-        "verdict",
+        "mean_option_mass", "verdict",
     }
     assert summary["n_labeled"] == 0 and math.isnan(summary["accuracy"])
     assert summary["n_truncated"] is None  # the fake scorer reports no truncation

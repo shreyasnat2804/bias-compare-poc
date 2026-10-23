@@ -52,6 +52,7 @@ _PAPER_CITATION = "Yang et al. 2026, arXiv:2605.01048"
 _EXCLUDED_SHARE_WARNING = 0.05
 _GROUP_BALANCE_WARNING = 0.8
 _LOW_N_WARNING = 30
+_OPTION_MASS_WARNING = 0.5
 
 
 @dataclass(frozen=True)
@@ -275,6 +276,13 @@ def _axis_block(
         )
         summary["accuracy"], summary["n_labeled"] = compute_accuracy(per_post, gold)
         summary["n_truncated"] = _n_truncated(axis_plan, outcome)
+        summary["mean_option_mass"] = _mean_option_mass(axis_plan, outcome)
+        if summary["mean_option_mass"] is not None and summary["mean_option_mass"] < _OPTION_MASS_WARNING:
+            warnings.append(
+                f"{spec.display_id}: on average only {summary['mean_option_mass']:.0%} of the model's next-token "
+                "probability went to the answer options, so it is often not answering in the requested format. "
+                "Check its prompt, chat template and options (docs/PLAN.md §4.3)."
+            )
         if summary["n_truncated"]:
             warnings.append(
                 f"{spec.display_id}: {summary['n_truncated']} rows had an input longer than the model's "
@@ -308,6 +316,22 @@ def _n_truncated(axis_plan: _AxisPlan, outcome: _ScoreOutcome) -> int | None:
         arms = [layout.original_index[i], layout.swap_index[i], *layout.control_indices[i]]
         count += any(truncated[j] for j in arms)
     return count
+
+
+def _mean_option_mass(axis_plan: _AxisPlan, outcome: _ScoreOutcome) -> float | None:
+    """Mean probability an LLM put on the answer options, over every arm of
+    this axis's eligible rows; None for scorers that do not report it."""
+    mass = outcome.diagnostics.get("option_mass")
+    if mass is None:
+        return None
+    layout = axis_plan.layout
+    values = [
+        mass[j]
+        for i, plan in enumerate(axis_plan.plans)
+        if plan.post.id in axis_plan.eligible_ids
+        for j in (layout.original_index[i], layout.swap_index[i], *layout.control_indices[i])
+    ]
+    return float(sum(values) / len(values)) if values else None
 
 
 def _ranking(model_entries: list[dict], alpha: float) -> list[dict]:
