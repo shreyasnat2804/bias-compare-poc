@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from biascompare.devices import free_accelerator_cache, pick_device
 from biascompare.inputs import ModelSpec
 from biascompare.metrics import Distribution
-from biascompare.scoring.base import distribution_from_logits, resolve_level_mapping
+from biascompare.scoring.base import distribution_from_logits, load_error, resolve_level_mapping
 from biascompare.tasks import DEFAULT_TASK, TaskSpec
 
 __all__ = ["HFClassifierScorer", "hf_classifier_factory", "pick_device"]
@@ -83,11 +83,7 @@ class HFClassifierScorer:
                 spec.name, token=token, revision=spec.revision
             )
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to load model {spec.name!r}. If this is a gated or private "
-                "model, pass a valid `token` on its ModelSpec, name an environment variable "
-                f"with `token_env`, or set HF_TOKEN. Original error: {exc}"
-            ) from exc
+            raise load_error(spec, exc) from exc
 
         self._model.to(self._device)
         self._model.eval()

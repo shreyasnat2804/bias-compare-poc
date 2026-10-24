@@ -40,6 +40,43 @@ ScorerFactory = Callable[[ModelSpec, TaskSpec, str], Scorer]
 dispatches on `spec.type` and is the default."""
 
 
+def load_error(spec: ModelSpec, exc: BaseException, what: str = "model") -> RuntimeError:
+    """A `RuntimeError` for a failed Hub load that says how to fix the usual
+    causes (gated model not yet granted, no token, wrong id) before the
+    original error. Chain it with `raise load_error(...) from exc`."""
+    chain, seen = [], exc
+    while seen is not None and len(chain) < 10:
+        chain.append(seen)
+        seen = seen.__cause__ or seen.__context__
+    names = {type(e).__name__ for e in chain}
+    text = " ".join(str(e) for e in chain)
+    page = f"https://huggingface.co/{spec.name}"
+    if "not in the authorized list" in text:
+        hint = (
+            f"{spec.name!r} is gated and the Hugging Face account that owns your token has not been granted "
+            f"access yet. Request it at {page} while logged in as that account, wait for the approval "
+            "(Hugging Face settings, Gated repositories), then rerun."
+        )
+    elif "fine-grained" in text:
+        hint = (
+            f"{spec.name!r} is gated and your fine-grained token cannot read gated repos. Enable "
+            "'Read access to contents of all public gated repos you can access' on the token, or use a read token."
+        )
+    elif "GatedRepoError" in names or "gated repo" in text:
+        hint = (
+            f"{spec.name!r} is gated and no valid token was sent. Accept its licence at {page} and set "
+            "HF_TOKEN (a Colab secret on Colab) or name an environment variable with `token_env`."
+        )
+    elif "RepositoryNotFoundError" in names or "not a valid model identifier" in text:
+        hint = (
+            f"{spec.name!r} is neither a Hub model id nor a local folder. Check the spelling, or for a private "
+            "model set HF_TOKEN or `token_env`."
+        )
+    else:
+        hint = "If this is a gated or private model, set HF_TOKEN or name an environment variable with `token_env`."
+    return RuntimeError(f"Failed to load {what} {spec.name!r}: {hint}\nOriginal error: {exc}")
+
+
 @dataclass(frozen=True)
 class LevelMapping:
     """How a classification head's outputs become a distribution over task levels.

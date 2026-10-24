@@ -218,6 +218,18 @@ def test_thinking_is_switched_off_by_default_for_hybrid_reasoners(tiny_hybrid_re
     thinking.close()
 
 
+def test_preview_llm_prompt_reports_an_unreachable_model(monkeypatch):
+    from biascompare.scoring import preview_llm_prompt
+
+    def _raise(*args, **kwargs):
+        raise OSError("org/missing is not a local folder and is not a valid model identifier")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", staticmethod(_raise))
+    spec = ModelSpec("org/missing", type="hf-causal-lm")
+    with pytest.raises(RuntimeError, match="Failed to load tokenizer of 'org/missing': 'org/missing' is neither"):
+        preview_llm_prompt(spec, "he said hi")
+
+
 def test_preview_llm_prompt_matches_the_scorer_without_loading_the_model(tiny_hybrid_reasoner):
     from biascompare.scoring import preview_llm_prompt
 

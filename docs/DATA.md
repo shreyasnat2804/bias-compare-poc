@@ -380,6 +380,11 @@ an environment variable with `token_env`, set `HF_TOKEN` (the notebook reads it 
 Colab secret), or pass `token=` to `ModelSpec` in code. Tokens never reach logs or
 results.
 
+For a gated model (Llama, for example) the token must belong to a Hugging Face account
+whose access request has been **approved** on the model's page; a token alone is not
+enough. A fine-grained token also needs read access to public gated repos. When a load
+fails, the error's first line says which of these is missing.
+
 ## 4. Resource files
 
 Shipped in `src/biascompare/resources/`.

@@ -25,6 +25,7 @@ from biascompare.devices import free_accelerator_cache, pick_device
 from biascompare.inputs import ModelSpec
 from biascompare.metrics import Distribution
 from biascompare.prompts import PromptSpec
+from biascompare.scoring.base import load_error
 from biascompare.tasks import DEFAULT_TASK, TaskSpec
 
 _DEFAULTS = {
@@ -103,11 +104,7 @@ class HFCausalLMScorer:
                 spec.name, token=token, revision=spec.revision, **model_kwargs
             )
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to load model {spec.name!r}. If this is a gated model, accept its licence on the "
-                "Hugging Face Hub and pass a token (`token_env` or HF_TOKEN). Original error: "
-                f"{exc}"
-            ) from exc
+            raise load_error(spec, exc) from exc
 
         if "device_map" not in model_kwargs:
             self._model.to(self._device)
@@ -259,7 +256,10 @@ def preview_llm_prompt(spec: ModelSpec, text: str, task: TaskSpec | None = None)
     settings = {**_DEFAULTS, **dict(spec.settings)}
     prompt = spec.prompt or PromptSpec(name="default")
     prompt.check_task(task)
-    tokenizer = AutoTokenizer.from_pretrained(spec.name, token=spec.resolved_token(), revision=spec.revision)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(spec.name, token=spec.resolved_token(), revision=spec.revision)
+    except Exception as exc:
+        raise load_error(spec, exc, what="tokenizer of") from exc
     chat = bool(settings["use_chat_template"]) and bool(getattr(tokenizer, "chat_template", None))
     rendered = _render(
         tokenizer, prompt, task, text, chat, str(settings["answer_prefix"]), bool(settings["enable_thinking"])
