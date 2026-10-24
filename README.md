@@ -37,7 +37,8 @@ What it supports:
   and **Hugging Face LLMs** scored on their answer-option probabilities.
 - **Gender and disability axes** in one run (custom axes too), with **tagged
   multi-word swaps** and **tagged control synonyms** per post.
-- **2 to 4 toxicity levels**, accuracy against gold labels, and data-quality warnings.
+- **2 to 4 toxicity levels**, a label-free check that each model is doing the task, and
+  data-quality warnings. The evaluated posts need no toxicity labels.
 
 | Document | What it covers |
 |-|-|

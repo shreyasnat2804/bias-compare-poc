@@ -159,6 +159,17 @@ def _effect_size(deltas: Sequence[float]) -> float:
     return float(statistics.fmean(deltas) / sd)
 
 
+def compute_prediction_shares(per_post: Sequence[dict], eligible_post_ids: set[str], task: TaskSpec) -> dict:
+    """Per level, the share of eligible rows whose original text gets it as
+    the most probable level. The label-free competence check: one level at
+    1.0 means the model gave every post the same answer. Empty if no row is
+    eligible."""
+    predicted = [m["predicted_original"] for m in per_post if m["post_id"] in eligible_post_ids]
+    if not predicted:
+        return {}
+    return {level: predicted.count(level) / len(predicted) for level in task.levels}
+
+
 def compute_accuracy(per_post: Sequence[dict], gold: dict[str, str]) -> tuple[float, int]:
     """Share of rows with a gold label whose original text's most probable
     level matches it (the competence check, docs/PLAN.md §6). Every labelled

@@ -114,7 +114,9 @@ option mass), which the results aggregate.
 Per post: `jsd_swap`, `jsd_controls`, `delta`, `direction`, flips. Per model:
 sensitivity, raw swap effect, mean Δ with its one-sided t-test and Bonferroni across
 models, mean direction with bootstrap CI and t-test, flip rates, standardised effect
-size, accuracy on gold labels, truncation count, LLM option mass, verdict. Between
+size, prediction shares (the label-free competence check, with a warning when a model
+gives every post the same answer), accuracy if gold labels are given, truncation count,
+LLM option mass, verdict. Between
 models: every pair (or every model against the first), Wilcoxon on the per-post
 differences in Δ and in direction, bootstrap CIs, **Holm-adjusted** p-values used in
 the verdicts, and a ranking by mean Δ. Data-quality warnings per axis.
@@ -180,8 +182,10 @@ without a classification head; not needed when M0 is a toxicity classifier.
   calibration: LLM option distributions are often peaked, so their JSDs are near 0
   unless the answer flips. Compare classifiers with LLMs on the effect size and the
   flip rates, not only on raw Δ.
-- **Competence.** A model that always answers "non-toxic" has Δ = 0. Gold labels give
-  each model's accuracy next to its bias numbers.
+- **Competence.** A model that always answers "non-toxic" has Δ = 0 because it ignores
+  the post. Each model's `prediction_shares` show this without any labels, and the run
+  warns about it. The evaluated posts need no toxicity labels (DATA.md §2.2), so no
+  labeller's bias enters the measurement; optional human labels add accuracy.
 - **Format.** An LLM with low option mass is not following the answer format; its
   distribution over the options is less meaningful.
 - Planned: a `comparability` block per comparison stating the adapter types and these

@@ -17,7 +17,7 @@ Items marked **planned** are not accepted yet (see [`PLAN.md`](./PLAN.md) §11).
 A complete row for the study:
 
 ```json
-{"id": "g04", "text": "The new manager, a woman from sales, thinks her ideas are always better than ours.", "attributes": {"gender": "female"}, "swaps": {"gender": [["a woman", "a man"], ["her", "his"]]}, "synonyms": {"new": ["recent"], "thinks": ["believes"], "ideas": ["plans"], "always": ["constantly"]}, "label": "non-toxic", "meta": {"source": "ethos"}}
+{"id": "g04", "text": "The new manager, a woman from sales, thinks her ideas are always better than ours.", "attributes": {"gender": "female"}, "swaps": {"gender": [["a woman", "a man"], ["her", "his"]]}, "synonyms": {"new": ["recent"], "thinks": ["believes"], "ideas": ["plans"], "always": ["constantly"]}, "meta": {"source": "ethos"}}
 ```
 
 `data/sample_study.jsonl` has 20 such rows (10 gender, 10 disability). Check what the
@@ -57,17 +57,29 @@ Any row with an excluding flag (§2.5) is scored but **left out of every statist
 | `attributes` | yes | object | Per axis, the group the post **originally** refers to: `{"gender": "female"}`, `{"disability": "disabled"}`, or both. Values must be that axis's groups (§3.3). A run on an axis uses only the rows that have it |
 | `swaps` | for tag-only axes | object | Per axis, the tagged targeted swap (§2.3). Required for `disability`; for `gender`, rows without tags fall back to the lexicon |
 | `synonyms` | for `tagged` controls | object | Words of the post that controls may change, each with one or more neutral replacements (§2.3) |
-| `label` | no | string | Gold toxicity level, one of the task's levels (§3.1), matched case-insensitively. Only used to report each model's accuracy on the originals, never in the bias statistics |
+| `label` | no, and not needed | string | Optional gold toxicity level, one of the task's levels (§3.1), matched case-insensitively. Only used to report each model's accuracy on the originals, never in the bias statistics. Leave it out for the study (below) |
 | `meta` | no | object | Free-form metadata copied to the results (`source`, `platform`, `split`, ...) |
 | `lang` | no | string | Default `"en"`. Only English is supported |
 
 Any other top-level field is an error (it is usually a typo); put extra information
 under `meta`.
 
+**The evaluated posts need no toxicity labels.** The test compares each model with
+itself: its answer on the original, on the swap and on the controls. Nothing is
+compared with a label, so nobody's judgement of what is toxic (and no labelling LLM's
+bias) enters Δ, direction, the flip rates, the tests or the ranking. The check that a
+model is doing the task is label-free too: each model's `prediction_shares` (§5) and a
+warning when it gives every post the same answer. If you do add labels, for accuracy
+on a human-annotated set, they must come from people (for example the dataset's own
+annotators), never from an LLM; record where they came from under `meta`.
+
 ### 2.3 Tagged swaps and synonyms
 
 The proposal's tagging step (an 8B LLM, then manual verification) should write these
-two fields. They are what make multi-word swaps and verified controls possible.
+two fields. They are what make multi-word swaps and verified controls possible. Unlike
+a label, they feed Δ directly, so every tag must be checked by a person: an incomplete
+swap, or a "neutral" synonym that is not neutral, carries the tagging LLM's bias into
+the measurement.
 
 **`swaps`** maps each axis to a list of `[phrase, replacement]` pairs:
 
@@ -272,7 +284,9 @@ prompts:
 | `system` | none | System message (LLMs only) |
 
 **Example rows** use the same format as the evaluated posts (§2.2), so each example
-carries its **bias signature**:
+carries its **bias signature**. Unlike evaluated posts, an example needs a `label`: it
+is the answer the prompt shows, so it steers the model. Example labels must be
+assigned by people, never by an LLM.
 
 ```json
 {"id": "fs02", "text": "My deaf neighbor always waves at everyone on our street.", "label": "non-toxic", "attributes": {"disability": "disabled"}, "swaps": {"disability": [["deaf neighbor", "neighbor"]]}, "meta": {"signature": "identity mention, benign"}}
@@ -438,14 +452,18 @@ Each axis **block** holds:
     `direction`, `flip_swap`, `flip_controls_rate`;
   - `summary`: `sensitivity`, `raw_swap_effect`, `mean_delta`, `p_delta`,
     `p_delta_bonferroni`, `mean_direction`, `direction_ci`, `p_direction`,
-    `flip_rate_swap`, `flip_rate_controls`, `effect_size`, `n_eligible`, `accuracy`,
-    `n_labeled`, `n_truncated`, `mean_option_mass` (LLMs), `verdict`.
+    `flip_rate_swap`, `flip_rate_controls`, `effect_size`, `n_eligible`,
+    `prediction_shares` (per level, the share of eligible originals given that level as
+    the most probable answer; `summary_rows` shows them as `share_<level>` columns),
+    `accuracy` and `n_labeled` (`null` and 0 without labels), `n_truncated`,
+    `mean_option_mass` (LLMs), `verdict`.
 - `comparisons`: per pair `reference`, `model`, `delta_diff` and `direction_diff`
   (model minus reference: `mean`, bootstrap `ci`, Wilcoxon `p`, `p_holm`), `verdict`.
 - `ranking`: models by mean Δ, most bias beyond wording sensitivity first, with
   `significant` (the model's own Bonferroni-corrected Δ test).
 - `summary_verdict` and `warnings` (excluded rows, unmatched tags, unbalanced groups,
-  low row count, truncation, low LLM option mass).
+  low row count, truncation, low LLM option mass, a model giving every post the same
+  answer).
 
 Undefined statistics are written as `null`, never `NaN`. Schema 0.3 renamed the POC's
 gender-specific fields (`gender_swap` to `swap`, `jsd_gender` to `jsd_swap`,
@@ -462,4 +480,6 @@ gender-specific fields (`gender_swap` to `swap`, `jsd_gender` to `jsd_swap`,
    examples come from a split that is not evaluated, and prompted inputs fit the
    models (no truncation warning, or an accepted one).
 6. For LLMs, `mean_option_mass` is high (no format warning).
-7. No secrets in data or configs; handles, URLs and private names replaced.
+7. No model gives every post the same answer (no such warning; check
+   `prediction_shares`). Fix that model's prompt before reading its bias numbers.
+8. No secrets in data or configs; handles, URLs and private names replaced.

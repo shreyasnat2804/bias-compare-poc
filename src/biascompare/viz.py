@@ -114,7 +114,8 @@ def summary_rows(results: dict) -> list[dict]:
 
     A model that failed to score gets a row with its `name` and `error`
     only; `direction_ci` is split into `direction_ci_low`/`direction_ci_high`
-    so every value in the row is a scalar.
+    and `prediction_shares` into one `share_<level>` column per level, so
+    every value in the row is a scalar.
     """
     rows: list[dict] = []
     for model in results["models"]:
@@ -157,10 +158,12 @@ def comparison_rows(results: dict) -> list[dict]:
 
 
 def _flatten_summary(summary: dict) -> dict:
-    flat = {key: value for key, value in summary.items() if key != "direction_ci"}
+    flat = {key: value for key, value in summary.items() if key not in ("direction_ci", "prediction_shares")}
     ci = summary.get("direction_ci") or [None, None]
     flat["direction_ci_low"] = ci[0]
     flat["direction_ci_high"] = ci[1]
+    for level, share in (summary.get("prediction_shares") or {}).items():
+        flat[f"share_{level}"] = share
     return flat
 
 

@@ -1,5 +1,5 @@
 """Multi-level runs: compare_models with fake scorers over 3- and 4-level tasks,
-distribution checks, gold labels and accuracy, and run warnings."""
+distribution checks, gold labels and accuracy, prediction shares, and run warnings."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import zlib
 import pytest
 
 from biascompare import ModelSpec, TaskSpec, compare_models
+from biascompare.viz import summary_rows
 from test_compare import BIASED_VS_UNBIASED, DATASET, NO_CONTROLS_RECORD, _fake_factory
 
 _FEMALE_WORDS = frozenset({"she", "her", "herself", "sister", "girlfriend", "woman", "girl"})
@@ -155,10 +156,32 @@ def test_unknown_model_type_fails_before_any_work():
 # ---------------------------------------------------------------------------
 
 
-def test_sample_dataset_warns_about_low_n_only():
+def test_sample_dataset_warns_about_low_n_and_a_model_giving_one_answer():
+    # The fake `unbiased` model's P(toxic) stays below 0.5, so it calls every post non-toxic.
     results = compare_models(BIASED_VS_UNBIASED, DATASET, seed=0, scorer_factory=_fake_factory)
-    assert len(results["warnings"]) == 1
-    assert "Only 10 rows are eligible" in results["warnings"][0]
+    low_n, same_answer = results["warnings"]
+    assert "Only 10 rows are eligible" in low_n
+    assert same_answer.startswith("unbiased: gave all 10 posts the same answer (non-toxic).")
+
+
+def test_prediction_shares_need_no_labels_and_flag_a_single_answer():
+    results = compare_models(BIASED_VS_UNBIASED, DATASET, seed=0, scorer_factory=_fake_factory)
+    biased, unbiased = (model["summary"] for model in results["models"])
+    assert unbiased["prediction_shares"] == {"non-toxic": 1.0, "toxic": 0.0}
+    assert 0 < biased["prediction_shares"]["toxic"] < 1
+    assert biased["n_labeled"] == 0
+    assert not any(w.startswith("biased:") for w in results["warnings"])
+    rows = summary_rows(results)
+    assert (rows[1]["share_non-toxic"], rows[1]["share_toxic"]) == (1.0, 0.0)
+    assert "prediction_shares" not in rows[1]
+
+
+def test_single_answer_is_not_flagged_on_too_few_rows(tmp_path):
+    path = tmp_path / "four.jsonl"
+    path.write_text("\n".join(DATASET.read_text(encoding="utf-8").splitlines()[:4]) + "\n", encoding="utf-8")
+    results = compare_models(BIASED_VS_UNBIASED, path, seed=0, scorer_factory=_fake_factory)
+    assert results["models"][1]["summary"]["prediction_shares"] == {"non-toxic": 1.0, "toxic": 0.0}
+    assert not any("same answer" in w for w in results["warnings"])
 
 
 def test_excluded_rows_and_imbalance_are_warned_about(tmp_path):

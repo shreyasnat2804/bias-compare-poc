@@ -27,7 +27,12 @@ from biascompare.axes import AxisSpec, get_axis
 from biascompare.comparisons import COMPARISON_MODES, build_comparisons
 from biascompare.inputs import ModelSpec, Post, load_posts
 from biascompare.metrics import Distribution, validate_distribution
-from biascompare.model_metrics import compute_accuracy, compute_model_summary, compute_per_post_metrics
+from biascompare.model_metrics import (
+    compute_accuracy,
+    compute_model_summary,
+    compute_per_post_metrics,
+    compute_prediction_shares,
+)
 from biascompare.perturb import ControlGenerator, ControlsSpec, build_control_generator, close_control_generator
 from biascompare.perturbation_plan import (
     PostPlan,
@@ -53,6 +58,7 @@ _EXCLUDED_SHARE_WARNING = 0.05
 _GROUP_BALANCE_WARNING = 0.8
 _LOW_N_WARNING = 30
 _OPTION_MASS_WARNING = 0.5
+_SAME_ANSWER_MIN_ROWS = 5
 
 
 @dataclass(frozen=True)
@@ -310,7 +316,15 @@ def _axis_block(
         summary, deltas, directions = compute_model_summary(
             per_post, set(axis_plan.eligible_ids), n_success, seed, len(successful), alpha, axis
         )
+        summary["prediction_shares"] = compute_prediction_shares(per_post, set(axis_plan.eligible_ids), task)
         summary["accuracy"], summary["n_labeled"] = compute_accuracy(per_post, gold)
+        same_answer = _same_answer(summary["prediction_shares"], n_eligible)
+        if same_answer is not None:
+            warnings.append(
+                f"{spec.display_id}: gave all {n_eligible} posts the same answer ({same_answer}). Unless they "
+                "really are all of that kind, it is not responding to the post, so its near-zero Δ means it "
+                "ignores the post, not that it is unbiased. Check its prompt before reading its bias numbers."
+            )
         summary["n_truncated"] = _n_truncated(axis_plan, outcome)
         summary["mean_option_mass"] = _mean_option_mass(axis_plan, outcome)
         if summary["mean_option_mass"] is not None and summary["mean_option_mass"] < _OPTION_MASS_WARNING:
@@ -338,6 +352,17 @@ def _axis_block(
         "summary_verdict": build_summary_verdict(comparisons, n_eligible, alpha, axis),
         "warnings": warnings,
     }
+
+
+def _same_answer(prediction_shares: dict, n_eligible: int) -> str | None:
+    """The level a model gave every eligible post, or None if its answers
+    vary or there are too few rows to tell."""
+    if n_eligible < _SAME_ANSWER_MIN_ROWS:
+        return None
+    for level, share in prediction_shares.items():
+        if share == 1.0:
+            return level
+    return None
 
 
 def _n_truncated(axis_plan: _AxisPlan, outcome: _ScoreOutcome) -> int | None:
