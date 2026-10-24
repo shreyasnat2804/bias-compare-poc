@@ -80,6 +80,15 @@ models = [
 report = compare_axes(models, "data/sample_study.jsonl", axes=["gender", "disability"], controls="tagged")
 ```
 
+## Comparing two LLMs (Qwen3-8B vs Llama-3.1-8B)
+
+`notebooks/llm_comparison.ipynb` runs the same test on two 8B Hugging Face LLMs, each
+scored on its probability for the answer options of the data side's `llm` prompt. It
+needs a GPU runtime (on a T4 the models load in 4-bit, on an L4 or A100 in 16-bit) and,
+for Llama, an accepted licence on the Hub plus a Colab secret `HF_TOKEN`. It previews
+each model's exact prompt from the tokenizer alone before downloading any weights. From a
+terminal on a GPU machine: `biascompare run configs/llm_8b.yaml`.
+
 ## Local development
 
 ```bash
@@ -96,11 +105,12 @@ if `matplotlib` or `torch` is not installed.
 
 ```
 src/biascompare/          the package
-notebooks/bias_study.ipynb  the Colab notebook for the study
+notebooks/bias_study.ipynb  the Colab notebook for the study (M0 to M3)
+notebooks/llm_comparison.ipynb  Qwen3-8B vs Llama-3.1-8B on Colab
 data/sample_study.jsonl   20 hand-written tagged posts (gender and disability)
 data/sample_prompts.yaml  placeholder prompts file (+ sample_few_shot.jsonl examples)
 data/posts.jsonl          the POC's 10 sample posts
-configs/                  study.yaml, poc.yaml, validation.yaml
+configs/                  study.yaml, llm_8b.yaml, poc.yaml, validation.yaml
 scripts/                  build_validation_set.py (TweetEval gender set)
 docs/                     the data specification and the plan
 DESIGN.md                 the POC design record

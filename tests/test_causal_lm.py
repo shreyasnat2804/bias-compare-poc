@@ -175,3 +175,60 @@ def test_end_to_end_classifier_style_run_with_llms(tmp_path, tiny_gpt2, tiny_lla
     assert run_models["llama"]["answers"] == ["No", "Yes"] and run_models["llama"]["scorer"] == "hf-causal-lm"
     assert any("not answering in the requested format" in w for w in results["warnings"])  # random weights
     assert len(results["comparisons"]) == 1
+
+
+_QWEN3_STYLE_TEMPLATE = (
+    "{% for m in messages %}<|im_start|>{{ m['role'] }}\n{{ m['content'] }}<|im_end|>\n{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n"
+    "{% if enable_thinking is defined and enable_thinking is false %}<think>\n\n</think>\n\n{% endif %}"
+    "{% endif %}"
+)
+
+
+@pytest.fixture(scope="module")
+def tiny_hybrid_reasoner(tmp_path_factory):
+    """A tiny Llama with a Qwen3-style template that opens a thinking block
+    unless `enable_thinking=False` is passed."""
+    path = tmp_path_factory.mktemp("qwen3-style")
+    tokenizer = _tokenizer(path, chat=True)
+    tokenizer.chat_template = _QWEN3_STYLE_TEMPLATE
+    tokenizer.save_pretrained(path)
+    torch.manual_seed(2)
+    config = transformers.LlamaConfig(
+        vocab_size=len(tokenizer), hidden_size=32, intermediate_size=64, num_hidden_layers=1,
+        num_attention_heads=4, num_key_value_heads=2, max_position_embeddings=512,
+        bos_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.eos_token_id,
+    )
+    transformers.LlamaForCausalLM(config).save_pretrained(path)
+    return str(path)
+
+
+def test_thinking_is_switched_off_by_default_for_hybrid_reasoners(tiny_hybrid_reasoner):
+    scorer = _scorer(tiny_hybrid_reasoner, prompt=PromptSpec(options={"non-toxic": "No", "toxic": "Yes"}))
+    rendered = scorer.render("he said hi")
+    assert rendered.endswith("<|im_start|>assistant\n<think>\n\n</think>\n\n")
+    assert scorer.metadata["enable_thinking"] is False
+    assert scorer.metadata["device"] == "cpu"
+    (dist,) = scorer.score(["he said hi"])
+    assert sum(dist) == pytest.approx(1.0)
+    scorer.close()
+
+    thinking = _scorer(tiny_hybrid_reasoner, enable_thinking=True)
+    assert thinking.render("he said hi").endswith("<|im_start|>assistant\n")
+    thinking.close()
+
+
+def test_preview_llm_prompt_matches_the_scorer_without_loading_the_model(tiny_hybrid_reasoner):
+    from biascompare.scoring import preview_llm_prompt
+
+    prompt = PromptSpec(options={"non-toxic": "No", "toxic": "Yes"})
+    spec = ModelSpec(tiny_hybrid_reasoner, type="hf-causal-lm", id="qwen-like", prompt=prompt)
+    preview = preview_llm_prompt(spec, "he said hi")
+    scorer = HFCausalLMScorer(spec, DEFAULT_TASK, "cpu")
+    assert preview["prompt"] == scorer.render("he said hi")
+    assert preview["chat_template"] is True and preview["model"] == "qwen-like"
+    assert list(preview["answer_tokens"]) == ["No", "Yes"]
+    assert [tokens[0] for tokens in preview["answer_tokens"].values()] == [
+        scorer._tokenizer.convert_ids_to_tokens(ids)[0] for ids in scorer._option_ids
+    ]
+    scorer.close()

@@ -18,7 +18,7 @@ from biascompare.scoring.base import (
     resolve_label_index,
     resolve_level_mapping,
 )
-from biascompare.scoring.causal_lm import HFCausalLMScorer, hf_causal_lm_factory
+from biascompare.scoring.causal_lm import HFCausalLMScorer, hf_causal_lm_factory, preview_llm_prompt
 from biascompare.scoring.classifier import HFClassifierScorer, hf_classifier_factory
 from biascompare.scoring.registry import (
     available_scorer_types,
@@ -40,6 +40,7 @@ __all__ = [
     "hf_classifier_factory",
     "HFCausalLMScorer",
     "hf_causal_lm_factory",
+    "preview_llm_prompt",
     "available_scorer_types",
     "check_scorer_type",
     "default_scorer_factory",

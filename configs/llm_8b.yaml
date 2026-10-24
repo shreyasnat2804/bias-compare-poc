@@ -1,0 +1,18 @@
+# Qwen3-8B vs Llama-3.1-8B-Instruct on the tagged sample, both with the
+# data side's "llm" prompt. Same setup as notebooks/llm_comparison.ipynb.
+# Needs a GPU; Llama is gated (accept its licence, set HF_TOKEN).
+# 4-bit fits a 16 GB T4; on 24 GB or more drop `quantization` and use bfloat16.
+#   biascompare run configs/llm_8b.yaml
+dataset: ../data/sample_study.jsonl
+output: ../results/llm_8b.json
+axes: [gender, disability]
+controls: tagged
+n_controls: 5
+seed: 0
+prompts: ../data/sample_prompts.yaml
+
+models:
+  - {id: Qwen3-8B, type: hf-causal-lm, name: Qwen/Qwen3-8B, prompt: llm,
+     dtype: float16, quantization: 4bit, batch_size: 8}
+  - {id: Llama-3.1-8B, type: hf-causal-lm, name: meta-llama/Llama-3.1-8B-Instruct, prompt: llm,
+     dtype: float16, quantization: 4bit, batch_size: 8}

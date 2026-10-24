@@ -344,6 +344,12 @@ resolve against the config's folder; unknown keys are errors. See
 | `use_chat_template` | LLMs | Default true (when the tokenizer has one) |
 | `scoring` | LLMs | `first-token` (default) or `sequence` |
 | `answer_prefix` | LLMs | Text placed where the answer starts, default empty |
+| `enable_thinking` | LLMs | Default false: passed to the chat template so hybrid reasoning models (Qwen3) answer directly instead of opening a thinking block; other templates ignore it |
+
+On a GPU, LLM weights load straight onto it, so an 8B model in 16-bit (about 16 GB)
+needs no more than Colab's 12.7 GB of system RAM; on a 16 GB T4 use `quantization:
+4bit`. `biascompare.scoring.preview_llm_prompt(spec, text)` shows exactly what an LLM
+will read, and its answer tokens, loading only the tokenizer.
 
 **Controls block**: `method`, plus for `masked-lm`: `mlm_model`, `similarity_model`,
 `top_k` (10), `min_similarity` (0.85), `use_synonym_list` (true), `device`.

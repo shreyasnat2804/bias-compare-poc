@@ -151,6 +151,10 @@ def test_shipped_example_configs_load():
     assert [m.id for m in study.models] == ["M0", "M1", "M2", "M3"]
     assert study.models[0].name == study.models[1].name and study.models[1].prompt.examples
     assert [a.name for a in study.axes] == ["gender", "disability"] and study.controls.method == "tagged"
+    llms = load_config(configs / "llm_8b.yaml")
+    assert [(m.id, m.type) for m in llms.models] == [("Qwen3-8B", "hf-causal-lm"), ("Llama-3.1-8B", "hf-causal-lm")]
+    assert llms.models[0].prompt.options == {"non-toxic": "No", "toxic": "Yes"}
+    assert dict(llms.models[1].settings)["quantization"] == "4bit"
 
 
 def test_study_config_previews_cleanly(capsys):

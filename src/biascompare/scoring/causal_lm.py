@@ -35,6 +35,7 @@ _DEFAULTS = {
     "use_chat_template": True,
     "scoring": "first-token",
     "answer_prefix": "",
+    "enable_thinking": False,
 }
 _DTYPES = ("auto", "float32", "float16", "bfloat16")
 _QUANTIZATION = ("none", "8bit", "4bit")
@@ -50,7 +51,14 @@ class HFCausalLMScorer:
     (`none`, `8bit`, `4bit`; needs `bitsandbytes` and a GPU),
     `use_chat_template` (true; ignored if the tokenizer has none),
     `scoring` (`first-token` or `sequence`), `answer_prefix` (text placed
-    after the assistant turn starts, before the answer, default empty).
+    after the assistant turn starts, before the answer, default empty),
+    `enable_thinking` (false: passed to the chat template, so hybrid
+    reasoning models such as Qwen3 answer directly instead of opening a
+    thinking block; templates that do not use it ignore it).
+
+    On a GPU the weights are loaded straight onto it (`device_map`), not
+    through system RAM, so an 8B model in 16-bit (about 16 GB) loads on
+    Colab's 12.7 GB of RAM; `quantization: 4bit` fits it on a 16 GB T4.
     """
 
     scorer_type = "hf-causal-lm"
@@ -76,6 +84,7 @@ class HFCausalLMScorer:
         self._max_length = int(settings["max_length"])
         self._scoring = settings["scoring"]
         self._answer_prefix = str(settings["answer_prefix"])
+        self._enable_thinking = bool(settings["enable_thinking"])
         self.diagnostics: dict[str, list] = {}
 
         try:
@@ -86,9 +95,10 @@ class HFCausalLMScorer:
         self._torch = torch
 
         token = spec.resolved_token()
+        self._device = pick_device(device) if settings["quantization"] == "none" else "cuda"
         try:
             self._tokenizer = AutoTokenizer.from_pretrained(spec.name, token=token, revision=spec.revision)
-            model_kwargs = _model_kwargs(torch, settings, device)
+            model_kwargs = _model_kwargs(torch, settings, self._device)
             self._model = AutoModelForCausalLM.from_pretrained(
                 spec.name, token=token, revision=spec.revision, **model_kwargs
             )
@@ -99,9 +109,7 @@ class HFCausalLMScorer:
                 f"{exc}"
             ) from exc
 
-        quantized = settings["quantization"] != "none"
-        self._device = pick_device(device) if not quantized else "cuda"
-        if not quantized:
+        if "device_map" not in model_kwargs:
             self._model.to(self._device)
         self._model.eval()
         self._input_device = next(self._model.parameters()).device
@@ -132,24 +140,15 @@ class HFCausalLMScorer:
             "dtype": str(getattr(self._model, "dtype", settings["dtype"])),
             "quantization": settings["quantization"],
             "max_length": self._max_length,
+            "enable_thinking": self._enable_thinking,
+            "device": str(self._input_device),
         }
 
     def render(self, text: str) -> str:
         """The exact string the model reads for `text`, ending where the answer starts."""
-        user = (
-            self._prompt.render(text, self._task)
-            + "\n\nAnswer with exactly one of: "
-            + ", ".join(self._answers)
-            + "."
+        return _render(
+            self._tokenizer, self._prompt, self._task, text, self._chat, self._answer_prefix, self._enable_thinking
         )
-        if self._chat:
-            messages = [{"role": "user", "content": user}]
-            if self._prompt.system:
-                messages.insert(0, {"role": "system", "content": self._prompt.system})
-            rendered = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            return rendered + self._answer_prefix
-        system = f"{self._prompt.system}\n\n" if self._prompt.system else ""
-        return f"{system}{user}\nAnswer:{self._answer_prefix}"
 
     def score(self, texts: Sequence[str]) -> list[Distribution]:
         results: list[Distribution] = []
@@ -231,6 +230,52 @@ class HFCausalLMScorer:
         return [tuple(float(p) for p in row) for row in dists], [float(m) for m in mass]
 
 
+def _render(tokenizer, prompt: PromptSpec, task: TaskSpec, text: str, chat: bool, answer_prefix: str,
+            enable_thinking: bool) -> str:
+    answers = prompt.answers(task)
+    user = prompt.render(text, task) + "\n\nAnswer with exactly one of: " + ", ".join(answers) + "."
+    if chat:
+        messages = [{"role": "user", "content": user}]
+        if prompt.system:
+            messages.insert(0, {"role": "system", "content": prompt.system})
+        rendered = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking
+        )
+        return rendered + answer_prefix
+    system = f"{prompt.system}\n\n" if prompt.system else ""
+    return f"{system}{user}\nAnswer:{answer_prefix}"
+
+
+def preview_llm_prompt(spec: ModelSpec, text: str, task: TaskSpec | None = None) -> dict:
+    """What an `hf-causal-lm` model will read for `text`, loading only its
+    tokenizer (seconds, not the minutes a full 8B load takes).
+
+    Returns the rendered prompt, whether the chat template was used, and
+    each answer option's tokens. Check that the prompt ends where the answer
+    should start (after the assistant marker, with no open thinking block)."""
+    from transformers import AutoTokenizer
+
+    task = task or DEFAULT_TASK
+    settings = {**_DEFAULTS, **dict(spec.settings)}
+    prompt = spec.prompt or PromptSpec(name="default")
+    prompt.check_task(task)
+    tokenizer = AutoTokenizer.from_pretrained(spec.name, token=spec.resolved_token(), revision=spec.revision)
+    chat = bool(settings["use_chat_template"]) and bool(getattr(tokenizer, "chat_template", None))
+    rendered = _render(
+        tokenizer, prompt, task, text, chat, str(settings["answer_prefix"]), bool(settings["enable_thinking"])
+    )
+    encode = lambda s: tokenizer(s, add_special_tokens=not chat)["input_ids"]  # noqa: E731
+    prompt_ids = encode(rendered)
+    answers = {}
+    for answer in prompt.answers(task):
+        candidate = answer if rendered[-1:].isspace() else " " + answer
+        joint = encode(rendered + candidate)
+        ids = joint[len(prompt_ids):] if joint[: len(prompt_ids)] == prompt_ids else encode(candidate)
+        answers[answer] = tokenizer.convert_ids_to_tokens(ids)
+    return {"model": spec.display_id, "prompt": rendered, "chat_template": chat, "n_tokens": len(prompt_ids),
+            "answer_tokens": answers}
+
+
 def hf_causal_lm_factory(spec: ModelSpec, task: TaskSpec | None, device: str) -> HFCausalLMScorer:
     """`ScorerFactory` for `type: hf-causal-lm`."""
     return HFCausalLMScorer(spec=spec, task=task, device=device)
@@ -242,7 +287,11 @@ def _check_choice(model: str, key: str, value: object, allowed: Sequence[str]) -
 
 
 def _model_kwargs(torch, settings: dict, device: str) -> dict:
-    """`from_pretrained` keyword arguments for the dtype and quantisation settings."""
+    """`from_pretrained` keyword arguments for dtype, quantisation and placement.
+
+    Weights go straight to `device` through `device_map` when `accelerate`
+    is installed (quantised models: `device_map="auto"`); otherwise the model
+    is loaded on the CPU and moved."""
     import transformers
 
     kwargs: dict = {}
@@ -263,4 +312,10 @@ def _model_kwargs(torch, settings: dict, device: str) -> dict:
         else:
             kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
         kwargs["device_map"] = "auto"
+        return kwargs
+    try:
+        import accelerate  # noqa: F401
+    except ImportError:
+        return kwargs
+    kwargs["device_map"] = device
     return kwargs
